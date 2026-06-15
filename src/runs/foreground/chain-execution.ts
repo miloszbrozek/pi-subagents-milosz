@@ -33,6 +33,7 @@ import {
 import { discoverAvailableSkills, normalizeSkillInput } from "../../agents/skills.ts";
 import { INTERCOM_BRIDGE_MARKER } from "../../intercom/intercom-bridge.ts";
 import { runSync } from "./execution.ts";
+import { writeStepContextFile } from "../shared/step-context.ts";
 import { buildChainSummary } from "../../shared/formatters.ts";
 import { compactForegroundDetails, getSingleResultOutput, mapConcurrent, resolveChildCwd, sumResultsCost, sumResultsUsage } from "../../shared/utils.ts";
 import { DEFAULT_GLOBAL_CONCURRENCY_LIMIT, Semaphore } from "../shared/parallel-utils.ts";
@@ -311,6 +312,15 @@ async function runParallelChainTasks(input: ParallelChainRunInput): Promise<Sing
 			const structuredRuntime = task.outputSchema
 				? createStructuredOutputRuntime(task.outputSchema, path.join(input.chainDir, "structured-output"))
 				: undefined;
+			const parallelStepIndex = input.globalTaskIndex + taskIndex;
+			writeStepContextFile(input.chainDir, {
+				chain_dir: input.chainDir,
+				step_index: parallelStepIndex,
+				agent: task.agent,
+				output: outputPath,
+				reads: typeof behavior.reads === "boolean" ? [] : (behavior.reads ?? []),
+				inputs: JSON.parse(JSON.stringify(input.outputs)),
+			});
 			const result = await runSync(input.ctx.cwd, input.agents, task.agent, taskStr, {
 				parentSessionId: input.ctx.sessionManager.getSessionId() ?? undefined,
 				cwd: taskCwd,
@@ -1163,6 +1173,15 @@ export async function executeChain(params: ChainExecutionParams): Promise<ChainE
 			const structuredRuntime = seqStep.outputSchema
 				? createStructuredOutputRuntime(seqStep.outputSchema, path.join(chainDir, "structured-output"))
 				: undefined;
+			writeStepContextFile(chainDir, {
+				chain_dir: chainDir,
+				step_index: globalTaskIndex,
+				agent: seqStep.agent,
+				output: outputPath,
+				reads: typeof behavior.reads === "boolean" ? [] : (behavior.reads ?? []),
+				inputs: JSON.parse(JSON.stringify(outputs)),
+			});
+
 			const toolBudget = resolveChainToolBudget({ stepBudget: seqStep.toolBudget, runBudget: params.toolBudget, agentBudget: agentConfig?.toolBudget, configBudget: params.configToolBudget });
 			if (toolBudget.error) return buildChainExecutionErrorResult(toolBudget.error, {
 				results,
