@@ -313,13 +313,15 @@ async function runParallelChainTasks(input: ParallelChainRunInput): Promise<Sing
 				? createStructuredOutputRuntime(task.outputSchema, path.join(input.chainDir, "structured-output"))
 				: undefined;
 			const parallelStepIndex = input.globalTaskIndex + taskIndex;
-			writeStepContextFile(input.chainDir, {
+			writeStepContextFile(input.artifactsDir, {
 				chain_dir: input.chainDir,
 				step_index: parallelStepIndex,
 				agent: task.agent,
 				output: outputPath,
 				reads: typeof behavior.reads === "boolean" ? [] : (behavior.reads ?? []),
 				inputs: JSON.parse(JSON.stringify(input.outputs)),
+				run_id: input.runId,
+				artifacts_dir: input.artifactsDir,
 			});
 			const result = await runSync(input.ctx.cwd, input.agents, task.agent, taskStr, {
 				parentSessionId: input.ctx.sessionManager.getSessionId() ?? undefined,
@@ -1173,13 +1175,15 @@ export async function executeChain(params: ChainExecutionParams): Promise<ChainE
 			const structuredRuntime = seqStep.outputSchema
 				? createStructuredOutputRuntime(seqStep.outputSchema, path.join(chainDir, "structured-output"))
 				: undefined;
-			writeStepContextFile(chainDir, {
+			writeStepContextFile(artifactsDir, {
 				chain_dir: chainDir,
 				step_index: globalTaskIndex,
 				agent: seqStep.agent,
 				output: outputPath,
 				reads: typeof behavior.reads === "boolean" ? [] : (behavior.reads ?? []),
 				inputs: JSON.parse(JSON.stringify(outputs)),
+				run_id: runId,
+				artifacts_dir: artifactsDir,
 			});
 
 			const toolBudget = resolveChainToolBudget({ stepBudget: seqStep.toolBudget, runBudget: params.toolBudget, agentBudget: agentConfig?.toolBudget, configBudget: params.configToolBudget });
