@@ -3635,6 +3635,7 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 				new Error(`Failed to create session directory '${sessionRoot}': ${message}`),
 			);
 		}
+		const artifactsDir = effectiveAsync ? deps.tempArtifactsDir : path.join(sessionRoot, "artifacts");
 		const sessionDirForIndex = (idx?: number) =>
 			path.join(sessionRoot, `run-${idx ?? 0}`);
 		const forkSessionFileForTask: ForkSessionFileForTask = (agentName, idx = 0, modelOverride) => {
