@@ -137,6 +137,7 @@ export interface ChainConfig {
 	source: AgentSource;
 	filePath: string;
 	steps: ChainStepConfig[];
+	chainDir?: string;
 	extraFields?: Record<string, string>;
 }
 

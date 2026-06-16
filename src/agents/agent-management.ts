@@ -432,6 +432,7 @@ function formatChainDetail(chain: ChainConfig): string {
 		lines.push(`Local name: ${frontmatterNameForConfig(chain)}`);
 		lines.push(`Package: ${chain.packageName}`);
 	}
+	if (chain.chainDir) lines.push(`Chain directory: ${chain.chainDir}`);
 	lines.push("", "Steps:");
 	for (let i = 0; i < chain.steps.length; i++) {
 		lines.push(...formatChainStepDetail(chain.steps[i]!, i));

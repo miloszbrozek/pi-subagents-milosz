@@ -525,6 +525,7 @@ export function registerSlashCommands(
 				return;
 			}
 			const params: SubagentParamsLike = { chain: mapSavedChainSteps(chain), task, clarify: false, agentScope: "both" };
+			if (chain.chainDir) params.chainDir = chain.chainDir;
 			if (bg) params.async = true;
 			if (fork) params.context = "fork";
 			await runSlashSubagent(pi, ctx, params);

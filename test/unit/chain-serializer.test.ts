@@ -154,4 +154,57 @@ Review the diff
 			/step 1 acceptance\.reason is required/,
 		);
 	});
+
+	it("parses chainDir from JSON chain", () => {
+		const parsed = parseJsonChain(JSON.stringify({
+			name: "with-dir",
+			description: "Chain with chainDir",
+			chainDir: "./tmp/chain-runs",
+			chain: [{ agent: "delegate", task: "Test" }],
+		}), "project", "/tmp/with-dir.chain.json");
+
+		assert.equal(parsed.chainDir, "./tmp/chain-runs");
+		assert.equal(parsed.extraFields, undefined);
+	});
+
+	it("round-trips chainDir in JSON chain", () => {
+		const parsed = parseJsonChain(JSON.stringify({
+			name: "with-dir",
+			description: "Chain with chainDir",
+			chainDir: "./tmp/chain-runs",
+			chain: [{ agent: "delegate", task: "Test" }],
+		}), "project", "/tmp/with-dir.chain.json");
+
+		const serialized = serializeJsonChain(parsed);
+		assert.match(serialized, /"chainDir": "\.\/tmp\/chain-runs"/);
+		const reparsed = parseJsonChain(serialized, "project", "/tmp/with-dir.chain.json");
+		assert.equal(reparsed.chainDir, "./tmp/chain-runs");
+	});
+
+	it("parses chainDir from markdown chain", () => {
+		const parsed = parseChain(`---
+name: md-chain
+chainDir: ./tmp/chain-runs
+description: Markdown chain with chainDir
+---
+
+## delegate
+output: test.txt
+
+Test task
+`, "project", "/tmp/md-chain.chain.md");
+
+		assert.equal(parsed.chainDir, "./tmp/chain-runs");
+		assert.match(serializeChain(parsed), /chainDir: \.\/tmp\/chain-runs/);
+	});
+
+	it("chainDir absent when not provided", () => {
+		const parsed = parseJsonChain(JSON.stringify({
+			name: "no-dir",
+			description: "Chain without chainDir",
+			chain: [{ agent: "delegate", task: "Test" }],
+		}), "project", "/tmp/no-dir.chain.json");
+
+		assert.equal(parsed.chainDir, undefined);
+	});
 });
