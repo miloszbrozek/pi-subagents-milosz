@@ -121,9 +121,10 @@ export function parseChain(content: string, source: AgentSource, filePath: strin
 	const parsedPackage = parsePackageName(frontmatter.package, `Chain '${localName}' package`);
 	if (parsedPackage.error) throw new Error(parsedPackage.error);
 	const packageName = parsedPackage.packageName;
+	const chainDir = typeof frontmatter.chainDir === "string" && frontmatter.chainDir.trim() ? frontmatter.chainDir.trim() : undefined;
 	const extraFields: Record<string, string> = {};
 	for (const [key, value] of Object.entries(frontmatter)) {
-		if (key === "name" || key === "package" || key === "description") continue;
+		if (key === "name" || key === "package" || key === "description" || key === "chainDir") continue;
 		extraFields[key] = value;
 	}
 
@@ -135,6 +136,7 @@ export function parseChain(content: string, source: AgentSource, filePath: strin
 		source,
 		filePath,
 		steps,
+		chainDir,
 		extraFields: Object.keys(extraFields).length > 0 ? extraFields : undefined,
 	};
 }
@@ -205,9 +207,10 @@ export function parseJsonChain(content: string, source: AgentSource, filePath: s
 	}
 	const parsedPackage = parsePackageName(typeof input.package === "string" ? input.package : undefined, `Chain '${input.name}' package`);
 	if (parsedPackage.error) throw new Error(parsedPackage.error);
+	const chainDir = typeof input.chainDir === "string" && input.chainDir.trim() ? input.chainDir.trim() : undefined;
 	const extraFields: Record<string, string> = {};
 	for (const [key, value] of Object.entries(input)) {
-		if (key === "name" || key === "package" || key === "description" || key === "chain") continue;
+		if (key === "name" || key === "package" || key === "description" || key === "chain" || key === "chainDir") continue;
 		if (typeof value === "string") extraFields[key] = value;
 	}
 	return {
@@ -218,6 +221,7 @@ export function parseJsonChain(content: string, source: AgentSource, filePath: s
 		source,
 		filePath,
 		steps: input.chain as ChainStepConfig[],
+		chainDir,
 		extraFields: Object.keys(extraFields).length > 0 ? extraFields : undefined,
 	};
 }
@@ -229,9 +233,10 @@ export function serializeJsonChain(config: ChainConfig): string {
 		chain: config.steps,
 	};
 	if (config.packageName) root.package = config.packageName;
+	if (config.chainDir) root.chainDir = config.chainDir;
 	if (config.extraFields) {
 		for (const [key, value] of Object.entries(config.extraFields)) {
-			if (key !== "name" && key !== "description" && key !== "package" && key !== "chain") root[key] = value;
+			if (key !== "name" && key !== "description" && key !== "package" && key !== "chain" && key !== "chainDir") root[key] = value;
 		}
 	}
 	return `${JSON.stringify(root, null, 2)}\n`;
@@ -243,6 +248,7 @@ export function serializeChain(config: ChainConfig): string {
 	lines.push(`name: ${frontmatterNameForConfig(config)}`);
 	if (config.packageName) lines.push(`package: ${config.packageName}`);
 	lines.push(`description: ${config.description}`);
+	if (config.chainDir) lines.push(`chainDir: ${config.chainDir}`);
 	if (config.extraFields) {
 		for (const [key, value] of Object.entries(config.extraFields)) {
 			lines.push(`${key}: ${value}`);
