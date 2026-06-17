@@ -28,70 +28,6 @@ function getChildIndex(): number {
   return Number(process.env.PI_SUBAGENT_CHILD_INDEX ?? "0");
 }
 
-// ── parsowanie prefixów chainowych ─────────────────────────────────────────
-
-const READ_RE = /^\[Read from:\s*(.+?)\]\s*$/gm;
-const WRITE_RE = /^\[Write to:\s*(.+?)\]\s*$/gm;
-
-export interface ParsedTask {
-  /** Ścieżka do skryptu .ts */
-  scriptPath: string;
-  /** Dodatkowe parametry (z JSON-a) */
-  params: Record<string, unknown>;
-  /** Ścieżki z [Read from: ...] */
-  reads: string[];
-  /** Ścieżka z [Write to: ...] (pierwsza znaleziona) */
-  writeTo: string | null;
-  /** Tekst tasku po oczyszczeniu z prefixów */
-  body: string;
-}
-
-export function parseTaskText(text: string): ParsedTask {
-  const reads: string[] = [];
-  const writeMatches: string[] = [];
-
-  let cleaned = text;
-  cleaned = cleaned.replace(READ_RE, (_match, files: string) => {
-    for (const f of files.split(",").map((s: string) => s.trim())) {
-      if (f) reads.push(f);
-    }
-    return "";
-  });
-  cleaned = cleaned.replace(WRITE_RE, (_match, file: string) => {
-    writeMatches.push(file.trim());
-    return "";
-  });
-
-  const writeTo = writeMatches[0] ?? null;
-  const body = cleaned.trim();
-
-  // Próbuj sparsować body jako JSON
-  let scriptPath = "";
-  let params: Record<string, unknown> = {};
-
-  try {
-    const parsed = JSON.parse(body);
-    if (typeof parsed.script === "string" && parsed.script.length > 0) {
-      scriptPath = parsed.script;
-    }
-    if (parsed.params && typeof parsed.params === "object" && !Array.isArray(parsed.params)) {
-      params = parsed.params as Record<string, unknown>;
-    }
-  } catch {
-    // Fallback: pierwsza niepusta linia to ścieżka
-    const lines = body.split("\n");
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith("#") && !trimmed.startsWith("---")) {
-        scriptPath = trimmed;
-        break;
-      }
-    }
-  }
-
-  return { scriptPath, params, reads, writeTo, body };
-}
-
 // ── context.json ────────────────────────────────────────────────────────────
 
 export interface StepContext {
@@ -196,59 +132,52 @@ export default function registerDeterminatorExtension(
   pi: ExtensionAPI,
 ): void {
   pi.on("input", async (event, _ctx) => {
-    const rawText = (event as { text: string }).text ?? "";
     const runId = getRunId();
     const childIndex = getChildIndex();
 
-    // 1. Parsuj task text
-    const parsed = parseTaskText(rawText);
-
-    if (!parsed.scriptPath) {
-      return {
-        action: "handled" as const,
-      };
+    // 1. Ustal chainDir i wczytaj context.json
+    const chainDir = process.env.PI_SUBAGENT_CHAIN_DIR;
+    if (!chainDir) {
+      const log = makeLogFn(process.cwd());
+      log("FAILED: PI_SUBAGENT_CHAIN_DIR not set — context.json location unknown");
+      return { action: "handled" as const };
     }
 
-    // 2. Ustal chainDir
-    let chainDir = process.cwd();
-    if (parsed.writeTo) {
-      // Wyciągnij chainDir z [Write to: /chainDir/output.md]
-      const dir = path.dirname(parsed.writeTo);
-      if (fs.existsSync(dir)) chainDir = dir;
-    }
-
-    // 3. Wczytaj context.json (jeśli istnieje)
     const stepCtx = loadContextFile(chainDir, runId);
-    const inputs = stepCtx?.reads ?? parsed.reads;
-    const output =
-      stepCtx?.output ?? parsed.writeTo ?? path.join(chainDir, "determinator-output.md");
-
-    // 4. Określ scriptPath, params i task — chain mode z context.json ma priorytet
-    let scriptPath = parsed.scriptPath;
-    let taskParams = parsed.params;
-    let cleanTask = parsed.body;
-
-    if (stepCtx?.task) {
-      try {
-        const taskObj = JSON.parse(stepCtx.task);
-        if (typeof taskObj.script === "string" && taskObj.script.length > 0) {
-          scriptPath = taskObj.script;
-        }
-        if (taskObj.params && typeof taskObj.params === "object" && !Array.isArray(taskObj.params)) {
-          taskParams = taskObj.params as Record<string, unknown>;
-        }
-        cleanTask = stepCtx.task;
-      } catch {
-        // chain mode fallback — użyj parsed
-      }
+    if (!stepCtx) {
+      const log = makeLogFn(chainDir);
+      log(`FAILED: context.json not found in ${chainDir} for run ${runId}`);
+      return { action: "handled" as const };
     }
 
-    // 5. Rozwiąż ścieżkę skryptu
+    // 2. Parsuj task jako JSON (script + params)
+    let scriptPath = "";
+    let taskParams: Record<string, unknown> = {};
+
+    try {
+      const taskObj = JSON.parse(stepCtx.task);
+      if (typeof taskObj.script !== "string" || taskObj.script.length === 0) {
+        throw new Error("task.script is missing or empty");
+      }
+      scriptPath = taskObj.script;
+      if (taskObj.params && typeof taskObj.params === "object" && !Array.isArray(taskObj.params)) {
+        taskParams = taskObj.params as Record<string, unknown>;
+      }
+    } catch (err: unknown) {
+      const log = makeLogFn(chainDir);
+      const msg = err instanceof Error ? err.message : String(err);
+      log(`FAILED: cannot parse stepCtx.task as JSON: ${msg}`);
+      return { action: "handled" as const };
+    }
+
+    // 3. Dane wyłącznie z context.json
+    const inputs = stepCtx.reads;
+    const output = stepCtx.output ?? path.join(chainDir, "determinator-output.md");
     const resolvedScriptPath = path.isAbsolute(scriptPath)
       ? scriptPath
       : path.resolve(process.cwd(), scriptPath);
 
-    // 6. Zbuduj DeterminatorContext
+    // 4. Zbuduj DeterminatorContext
     const log = makeLogFn(chainDir);
     const execFn = await makeExecFn(process.cwd());
     const readFile = await makeReadFileFn();
@@ -258,7 +187,7 @@ export default function registerDeterminatorExtension(
       inputs,
       output,
       cwd: process.cwd(),
-      task: cleanTask,
+      task: stepCtx.task,
       chainDir,
       params: taskParams,
       runId,
@@ -270,7 +199,7 @@ export default function registerDeterminatorExtension(
       writeFile,
     };
 
-    // 6. Załaduj i uruchom skrypt
+    // 5. Załaduj i uruchom skrypt
     let resultContent: string;
     try {
       log(`Loading script: ${resolvedScriptPath}`);
@@ -284,14 +213,14 @@ export default function registerDeterminatorExtension(
 
       if (typeof scriptFn !== "function") {
         throw new Error(
-          `Script ${scriptPath} did not export a default function. Got: ${typeof scriptFn}`,
+          `Script ${resolvedScriptPath} did not export a default function. Got: ${typeof scriptFn}`,
         );
       }
 
       log("Script loaded, executing...");
       const result = await scriptFn(ctx);
 
-      // 7. Zapisz output
+      // 6. Zapisz output
       const outputText =
         result.output || `Determinator completed with exit code ${result.exitCode}`;
       resultContent = outputText;
@@ -317,7 +246,7 @@ export default function registerDeterminatorExtension(
       log(`FAILED: ${message}`);
     }
 
-    // 8. Zwróć output i zablokuj LLM
+    // 7. Zwróć output i zablokuj LLM
     return { action: "handled" as const };
   });
 }

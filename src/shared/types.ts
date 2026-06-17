@@ -754,6 +754,7 @@ export const SUBAGENT_RESULT_INTERCOM_DELIVERY_EVENT = "subagent:result-intercom
 
 export interface RunSyncOptions {
 	cwd?: string;
+	chainDir?: string;
 	signal?: AbortSignal;
 	interruptSignal?: AbortSignal;
 	allowIntercomDetach?: boolean;
