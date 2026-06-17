@@ -3,7 +3,9 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as path from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
 import type { AgentConfig } from "../../agents/agents.ts";
@@ -82,6 +84,7 @@ import {
 	resolveChildWatchdogConfig,
 	type ChildWatchdogStateSnapshot,
 } from "../../watchdog/child-status.ts";
+import type { StepContext } from "../shared/step-context.ts";
 
 const artifactOutputByResult = new WeakMap<SingleResult, string>();
 const acceptanceOutputByResult = new WeakMap<SingleResult, string>();
@@ -1169,6 +1172,26 @@ export async function runSync(
 	}
 
 	const shareEnabled = options.share === true;
+
+	// Non-chain mode: zapewnij context.json dla agentów które go oczekują (np. determinator)
+	if (!options.chainDir) {
+		const tmpDir = join(tmpdir(), `pi-subagent-ctx-${options.runId}`);
+		mkdirSync(tmpDir, { recursive: true });
+		const ctx: StepContext = {
+			chain_dir: tmpDir,
+			step_index: options.index ?? 0,
+			agent: agentName,
+			task: task,
+			output: options.outputPath,
+			reads: [],
+			inputs: {},
+			run_id: options.runId,
+			artifacts_dir: options.artifactsDir ?? tmpDir,
+		};
+		writeFileSync(join(tmpDir, `${options.runId}_${agentName}_${options.index ?? 0}_context.json`), JSON.stringify(ctx, null, 2));
+		options.chainDir = tmpDir;
+	}
+
 	const effectiveAcceptance = resolveEffectiveAcceptance({
 		explicit: options.acceptance,
 		agentName,
