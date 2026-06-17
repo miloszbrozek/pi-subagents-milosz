@@ -313,7 +313,7 @@ async function runParallelChainTasks(input: ParallelChainRunInput): Promise<Sing
 				? createStructuredOutputRuntime(task.outputSchema, path.join(input.chainDir, "structured-output"))
 				: undefined;
 			const parallelStepIndex = input.globalTaskIndex + taskIndex;
-			writeStepContextFile(input.artifactsDir, {
+			const stepContext = {
 				chain_dir: input.chainDir,
 				step_index: parallelStepIndex,
 				agent: task.agent,
@@ -322,7 +322,9 @@ async function runParallelChainTasks(input: ParallelChainRunInput): Promise<Sing
 				inputs: JSON.parse(JSON.stringify(input.outputs)),
 				run_id: input.runId,
 				artifacts_dir: input.artifactsDir,
-			});
+			};
+			writeStepContextFile(input.artifactsDir, stepContext);
+			writeStepContextFile(input.chainDir, stepContext);
 			const result = await runSync(input.ctx.cwd, input.agents, task.agent, taskStr, {
 				parentSessionId: input.ctx.sessionManager.getSessionId() ?? undefined,
 				cwd: taskCwd,
@@ -1175,7 +1177,7 @@ export async function executeChain(params: ChainExecutionParams): Promise<ChainE
 			const structuredRuntime = seqStep.outputSchema
 				? createStructuredOutputRuntime(seqStep.outputSchema, path.join(chainDir, "structured-output"))
 				: undefined;
-			writeStepContextFile(artifactsDir, {
+			const stepContext = {
 				chain_dir: chainDir,
 				step_index: globalTaskIndex,
 				agent: seqStep.agent,
@@ -1184,7 +1186,10 @@ export async function executeChain(params: ChainExecutionParams): Promise<ChainE
 				inputs: JSON.parse(JSON.stringify(outputs)),
 				run_id: runId,
 				artifacts_dir: artifactsDir,
-			});
+			};
+			writeStepContextFile(artifactsDir, stepContext);
+			writeStepContextFile(chainDir, stepContext);
+		};			
 
 			const toolBudget = resolveChainToolBudget({ stepBudget: seqStep.toolBudget, runBudget: params.toolBudget, agentBudget: agentConfig?.toolBudget, configBudget: params.configToolBudget });
 			if (toolBudget.error) return buildChainExecutionErrorResult(toolBudget.error, {
@@ -1203,6 +1208,7 @@ export async function executeChain(params: ChainExecutionParams): Promise<ChainE
 				dynamicChildren,
 				dynamicGroupStatuses,
 			});
+
 			const r = await runSync(ctx.cwd, agents, seqStep.agent, stepTask, {
 				parentSessionId: ctx.sessionManager.getSessionId() ?? undefined,
 				cwd: resolveChildCwd(cwd ?? ctx.cwd, seqStep.cwd),
