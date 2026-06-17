@@ -173,7 +173,8 @@ export default function registerDeterminatorExtension(
     }
 
     // 3. Dane wyłącznie z context.json
-    const inputs = stepCtx.reads;
+    const inputs = stepCtx.reads.map((r) =>
+      path.isAbsolute(r) ? r : path.join(chainDir, r));
     const output = stepCtx.output ?? path.join(chainDir, "determinator-output.md");
     const resolvedScriptPath = path.isAbsolute(scriptPath)
       ? scriptPath
