@@ -1,7 +1,6 @@
 ---
 name: determinator
 description: Zero-LLM agent that executes a deterministic .ts script via jiti
-tools:
 systemPromptMode: replace
 inheritProjectContext: false
 inheritSkills: false
