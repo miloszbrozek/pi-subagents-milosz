@@ -1063,6 +1063,7 @@ export interface RunSyncOptions {
 	/** Session id of the direct parent session for permission-system ask forwarding. */
 	parentSessionId?: string;
 	cwd?: string;
+	chainDir?: string;
 	signal?: AbortSignal;
 	interruptSignal?: AbortSignal;
 	timeoutMs?: number;
