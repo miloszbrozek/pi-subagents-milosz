@@ -279,6 +279,7 @@ async function runParallelChainTasks(input: ParallelChainRunInput): Promise<Sing
 			writeStepContextFile(input.chainDir, stepContext);
 			const result = await runSync(input.ctx.cwd, input.agents, task.agent, taskStr, {
 				cwd: taskCwd,
+				chainDir: input.chainDir,
 				signal: input.signal,
 				interruptSignal: interruptController.signal,
 				allowIntercomDetach: taskAgentConfig?.systemPrompt?.includes(INTERCOM_BRIDGE_MARKER) === true,
@@ -1077,6 +1078,7 @@ export async function executeChain(params: ChainExecutionParams): Promise<ChainE
 			writeStepContextFile(chainDir, stepContext);
 			const r = await runSync(ctx.cwd, agents, seqStep.agent, stepTask, {
 				cwd: resolveChildCwd(cwd ?? ctx.cwd, seqStep.cwd),
+				chainDir,
 				signal,
 				interruptSignal: interruptController.signal,
 				allowIntercomDetach: agentConfig.systemPrompt?.includes(INTERCOM_BRIDGE_MARKER) === true,
