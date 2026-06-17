@@ -117,8 +117,11 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 	}
 
 	const runtimeExtensions = fanoutAuthorized
-		? [PROMPT_RUNTIME_EXTENSION_PATH, FANOUT_CHILD_EXTENSION_PATH, DETERMINATOR_EXTENSION_PATH]
-		: [PROMPT_RUNTIME_EXTENSION_PATH, DETERMINATOR_EXTENSION_PATH];
+		? [PROMPT_RUNTIME_EXTENSION_PATH, FANOUT_CHILD_EXTENSION_PATH]
+		: [PROMPT_RUNTIME_EXTENSION_PATH];
+	if (input.childAgentName === "determinator") {
+		runtimeExtensions.push(DETERMINATOR_EXTENSION_PATH);
+	}
 	if (input.extensions !== undefined) {
 		args.push("--no-extensions");
 		for (const extPath of [...new Set([...runtimeExtensions, ...toolExtensionPaths, ...input.extensions])]) {

@@ -19,18 +19,21 @@ import type {
   DeterminatorScript,
 } from "./interface";
 
-// ── env ────────────────────────────────────────────────────────────────────
+// ── env (odczytywane w momencie wywołania, nie importu) ──────────────────
 
-const CHILD_AGENT = process.env.PI_SUBAGENT_CHILD_AGENT;
-const RUN_ID = process.env.PI_SUBAGENT_RUN_ID ?? "unknown";
-const CHILD_INDEX = Number(process.env.PI_SUBAGENT_CHILD_INDEX ?? "0");
+function getRunId(): string {
+  return process.env.PI_SUBAGENT_RUN_ID ?? "unknown";
+}
+function getChildIndex(): number {
+  return Number(process.env.PI_SUBAGENT_CHILD_INDEX ?? "0");
+}
 
 // ── parsowanie prefixów chainowych ─────────────────────────────────────────
 
 const READ_RE = /^\[Read from:\s*(.+?)\]\s*$/gm;
 const WRITE_RE = /^\[Write to:\s*(.+?)\]\s*$/gm;
 
-interface ParsedTask {
+export interface ParsedTask {
   /** Ścieżka do skryptu .ts */
   scriptPath: string;
   /** Dodatkowe parametry (z JSON-a) */
@@ -43,7 +46,7 @@ interface ParsedTask {
   body: string;
 }
 
-function parseTaskText(text: string): ParsedTask {
+export function parseTaskText(text: string): ParsedTask {
   const reads: string[] = [];
   const writeMatches: string[] = [];
 
@@ -91,7 +94,7 @@ function parseTaskText(text: string): ParsedTask {
 
 // ── context.json ────────────────────────────────────────────────────────────
 
-interface StepContext {
+export interface StepContext {
   chain_dir: string;
   step_index: number;
   agent: string;
@@ -102,13 +105,14 @@ interface StepContext {
   artifacts_dir: string;
 }
 
-function findContextFile(chainDir: string): string | null {
+export function findContextFile(chainDir: string, runId?: string): string | null {
+  const effectiveRunId = runId ?? getRunId();
   if (!fs.existsSync(chainDir)) return null;
   const entries = fs.readdirSync(chainDir);
   // Szukamy pliku *_context.json pasującego do runId
   for (const entry of entries) {
     if (
-      entry.startsWith(RUN_ID) &&
+      entry.startsWith(effectiveRunId) &&
       entry.endsWith("_context.json")
     ) {
       return path.join(chainDir, entry);
@@ -117,8 +121,8 @@ function findContextFile(chainDir: string): string | null {
   return null;
 }
 
-function loadContextFile(chainDir: string): StepContext | null {
-  const filePath = findContextFile(chainDir);
+export function loadContextFile(chainDir: string, runId?: string): StepContext | null {
+  const filePath = findContextFile(chainDir, runId);
   if (!filePath) return null;
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
@@ -190,10 +194,10 @@ async function makeWriteFileFn(): Promise<
 export default function registerDeterminatorExtension(
   pi: ExtensionAPI,
 ): void {
-  if (CHILD_AGENT !== "determinator") return;
-
   pi.on("input", async (event, _ctx) => {
     const rawText = (event as { text: string }).text ?? "";
+    const runId = getRunId();
+    const childIndex = getChildIndex();
 
     // 1. Parsuj task text
     const parsed = parseTaskText(rawText);
@@ -213,7 +217,7 @@ export default function registerDeterminatorExtension(
     }
 
     // 3. Wczytaj context.json (jeśli istnieje)
-    const stepCtx = loadContextFile(chainDir);
+    const stepCtx = loadContextFile(chainDir, runId);
     const inputs = stepCtx?.reads ?? parsed.reads;
     const output =
       stepCtx?.output ?? parsed.writeTo ?? path.join(chainDir, "determinator-output.md");
@@ -236,9 +240,9 @@ export default function registerDeterminatorExtension(
       task: parsed.body,
       chainDir,
       params: parsed.params,
-      runId: RUN_ID,
-      agentName: CHILD_AGENT ?? "determinator",
-      stepIndex: Number.isNaN(CHILD_INDEX) ? 0 : CHILD_INDEX,
+      runId,
+      agentName: process.env.PI_SUBAGENT_CHILD_AGENT ?? "determinator",
+      stepIndex: Number.isNaN(childIndex) ? 0 : childIndex,
       log,
       exec: execFn,
       readFile,
