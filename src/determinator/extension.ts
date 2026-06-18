@@ -18,6 +18,7 @@ import type {
   DeterminatorContext,
   DeterminatorScript,
 } from "./interface";
+import type { StepContext } from "../runs/shared/step-context.ts";
 
 // ── env (odczytywane w momencie wywołania, nie importu) ──────────────────
 
@@ -29,18 +30,6 @@ function getChildIndex(): number {
 }
 
 // ── context.json ────────────────────────────────────────────────────────────
-
-export interface StepContext {
-  chain_dir: string;
-  step_index: number;
-  agent: string;
-  task: string;
-  output?: string;
-  reads: string[];
-  inputs: Record<string, { text: string; structured?: unknown }>;
-  run_id: string;
-  artifacts_dir: string;
-}
 
 export function findContextFile(chainDir: string, runId?: string): string | null {
   const effectiveRunId = runId ?? getRunId();
@@ -173,9 +162,7 @@ export default function registerDeterminatorExtension(
     }
 
     // 3. Dane wyłącznie z context.json
-    const inputs = stepCtx.reads.map((r) =>
-      path.isAbsolute(r) ? r : path.join(chainDir, r));
-    const output = stepCtx.output ?? path.join(chainDir, "determinator-output.md");
+    const outputPath = stepCtx.output ?? path.join(chainDir, "determinator-output.md");
     const resolvedScriptPath = path.isAbsolute(scriptPath)
       ? scriptPath
       : path.resolve(process.cwd(), scriptPath);
@@ -187,15 +174,9 @@ export default function registerDeterminatorExtension(
     const writeFile = await makeWriteFileFn();
 
     const ctx: DeterminatorContext = {
-      inputs,
-      output,
+      stepContext: stepCtx,
       cwd: process.cwd(),
-      task: stepCtx.task,
-      chainDir,
       params: taskParams,
-      runId,
-      agentName: process.env.PI_SUBAGENT_CHILD_AGENT ?? "determinator",
-      stepIndex: Number.isNaN(childIndex) ? 0 : childIndex,
       log,
       exec: execFn,
       readFile,
@@ -227,11 +208,11 @@ export default function registerDeterminatorExtension(
       const outputText =
         result.output || `Determinator completed with exit code ${result.exitCode}`;
       resultContent = outputText;
-      await writeFile(ctx.output, outputText);
+      await writeFile(outputPath, outputText);
 
       if (result.error) {
         await writeFile(
-          ctx.output + ".error",
+          outputPath + ".error",
           `Exit code: ${result.exitCode}\nError: ${result.error}\n`,
         );
       }
@@ -242,7 +223,7 @@ export default function registerDeterminatorExtension(
       const stack = err instanceof Error ? err.stack : "";
       resultContent = `Determinator failed:\n${message}\n\n${stack}`;
       try {
-        await writeFile(ctx.output, resultContent);
+        await writeFile(outputPath, resultContent);
       } catch {
         // Best effort.
       }

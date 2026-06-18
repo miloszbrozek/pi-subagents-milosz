@@ -8,16 +8,24 @@
  *   /run determinator '{"script": "'$(pwd)'/examples/determinator-ls-example.ts"}'
  */
 
+import * as path from "node:path";
 import type { DeterminatorScript } from "../src/determinator/interface";
 
 const script: DeterminatorScript = async (ctx) => {
   ctx.log("Starting determinator-ls-example...");
 
+  const { stepContext } = ctx;
+  const chainDir = stepContext.chain_dir;
+  const outputPath = stepContext.output ?? path.join(chainDir, "determinator-output.md");
+  const resolvedInputs = stepContext.reads.map((r) =>
+    path.isAbsolute(r) ? r : path.join(chainDir, r),
+  );
+
   // Wykonaj ls -la
   const { stdout, stderr } = await ctx.exec("ls -la");
 
-  const readmeContent = ctx.inputs.length > 0
-    ? await ctx.readFile(ctx.inputs[0]!).catch(() => "(file not found)")
+  const readmeContent = resolvedInputs.length > 0
+    ? await ctx.readFile(resolvedInputs[0]!).catch(() => "(file not found)")
     : "(no inputs)";
 
   // Zbuduj raport
@@ -32,19 +40,23 @@ const script: DeterminatorScript = async (ctx) => {
     stderr ? `\`\`\`\n${stderr}\n\`\`\`` : "(none)\n",
     "## Context\n",
     `- **cwd**: ${ctx.cwd}`,
-    `- **inputs**: ${ctx.inputs.join(", ") || "(none)"}`,
-    `- **output**: ${ctx.output}`,
-    `- **chainDir**: ${ctx.chainDir}`,
-    `- **runId**: ${ctx.runId}`,
+    `- **reads**: ${stepContext.reads.join(", ") || "(none)"}`,
+    `- **output**: ${outputPath}`,
+    `- **chainDir**: ${chainDir}`,
+    `- **runId**: ${stepContext.run_id}`,
     `- **params**: ${JSON.stringify(ctx.params)}`,
     "",
+    "## Step context (raw)\n",
+    "```json",
+    JSON.stringify(stepContext, null, 2),
+    "```\n",
     "## First input preview",
     "```",
     readmeContent.slice(0, 500),
     "```",
   ].join("\n");
 
-  await ctx.writeFile(ctx.output, content);
+  await ctx.writeFile(outputPath, content);
   ctx.log("Report written successfully");
 
   return { exitCode: 0, output: content };
