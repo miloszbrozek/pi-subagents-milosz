@@ -323,6 +323,7 @@ async function runParallelChainTasks(input: ParallelChainRunInput): Promise<Sing
 				inputs: JSON.parse(JSON.stringify(input.outputs)),
 				run_id: input.runId,
 				artifacts_dir: input.artifactsDir,
+				sessionFile: input.sessionFileForIndex?.(parallelStepIndex),
 			};
 			writeStepContextFile(input.artifactsDir, stepContext);
 			writeStepContextFile(input.chainDir, stepContext);
@@ -1189,6 +1190,7 @@ export async function executeChain(params: ChainExecutionParams): Promise<ChainE
 				inputs: JSON.parse(JSON.stringify(outputs)),
 				run_id: runId,
 				artifacts_dir: artifactsDir,
+				sessionFile: sessionFileForIndex?.(globalTaskIndex),
 			};
 			writeStepContextFile(artifactsDir, stepContext);
 			writeStepContextFile(chainDir, stepContext);
