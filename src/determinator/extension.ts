@@ -61,6 +61,23 @@ export function loadContextFile(chainDir: string, runId?: string): StepContext |
   }
 }
 
+export function getStepContextFile(
+  chainDir: string,
+  runId: string,
+  stepIndex: number,
+): StepContext | null {
+  try {
+    const files = fs.readdirSync(chainDir);
+    const suffix = `_${stepIndex}_context.json`;
+    const match = files.find((f) => f.startsWith(runId) && f.endsWith(suffix));
+    if (!match) return null;
+    const raw = fs.readFileSync(path.join(chainDir, match), "utf-8");
+    return JSON.parse(raw) as StepContext;
+  } catch {
+    return null;
+  }
+}
+
 // ── helpery dla DeterminatorContext ─────────────────────────────────────────
 
 function makeLogFn(chainDir: string): (message: string) => void {
@@ -181,6 +198,8 @@ export default function registerDeterminatorExtension(
       exec: execFn,
       readFile,
       writeFile,
+      getStepContext: (stepIndex: number): StepContext | null =>
+        getStepContextFile(chainDir, runId, stepIndex),
     };
 
     // 5. Załaduj i uruchom skrypt
