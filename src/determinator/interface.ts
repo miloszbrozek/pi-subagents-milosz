@@ -5,25 +5,15 @@
  * eksportować domyślnie funkcję typu DeterminatorScript.
  */
 
+import type { StepContext } from "../runs/shared/step-context.ts";
+
 export interface DeterminatorContext {
-  /** Ścieżki wejściowe (z reads w chain stepie lub context.json) */
-  inputs: string[];
-  /** Ścieżka wyjściowa (z output w agencie/chain stepie) */
-  output: string;
+  /** Wszystkie pola z context.json (1:1) */
+  stepContext: StepContext;
   /** Working directory */
   cwd: string;
-  /** Oryginalny tekst zadania (po oczyszczeniu z prefixów) */
-  task: string;
-  /** Katalog chaina (z context.json.chain_dir), lub cwd jako fallback */
-  chainDir: string;
   /** Dodatkowe parametry (z JSON-a w tasku, pole "params") */
   params: Record<string, unknown>;
-  /** ID runa (PI_SUBAGENT_RUN_ID) */
-  runId: string;
-  /** Nazwa agenta (PI_SUBAGENT_CHILD_AGENT) */
-  agentName: string;
-  /** Indeks stepa (PI_SUBAGENT_CHILD_INDEX) */
-  stepIndex: number;
 
   /** Loguj wiadomość (zapisuje do determinator-debug.log w chainDir) */
   log(message: string): void;
