@@ -26,6 +26,9 @@ export interface DeterminatorContext {
 
   /** Zapisz plik */
   writeFile(path: string, content: string): Promise<void>;
+
+  /** Odczytaj StepContext innego stepu w chainie (null gdy nie znaleziono) */
+  getStepContext(stepIndex: number): StepContext | null;
 }
 
 export interface DeterminatorResult {
