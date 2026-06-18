@@ -1184,7 +1184,6 @@ export async function runSync(
 			task: task,
 			output: options.outputPath,
 			reads: [],
-			inputs: {},
 			run_id: options.runId,
 			artifacts_dir: options.artifactsDir ?? tmpDir,
 			sessionFile: options.sessionFile,

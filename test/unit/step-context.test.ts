@@ -29,12 +29,6 @@ describe("writeStepContextFile", () => {
             agent: "scout",
             output: path.join(tmpDir, "context.md"),
             reads: ["plan.md"],
-            inputs: {
-                scan: {
-                    text: '{"files":["auth.ts"]}',
-                    structured: { files: ["auth.ts"] },
-                },
-            },
             run_id: runId,
             artifacts_dir: tmpDir,
             sessionFile: "/tmp/sessions/run-0/session.jsonl",
@@ -52,12 +46,10 @@ describe("writeStepContextFile", () => {
         assert.strictEqual(data.reads.length, 1);
         assert.strictEqual(data.reads[0], "plan.md");
         assert.strictEqual(data.output, path.join(tmpDir, "context.md"));
-        assert.strictEqual(data.inputs.scan.text, '{"files":["auth.ts"]}');
-        assert.deepStrictEqual(data.inputs.scan.structured, { files: ["auth.ts"] });
         assert.strictEqual(data.sessionFile, "/tmp/sessions/run-0/session.jsonl");
     });
 
-    it("writes step context file with empty reads and no inputs (first step)", () => {
+    it("writes step context file with empty reads (first step)", () => {
         tmpDir = mkTempDir();
 
         const filePath = writeStepContextFile(tmpDir, {
@@ -65,7 +57,6 @@ describe("writeStepContextFile", () => {
             step_index: 0,
             agent: "planner",
             reads: [],
-            inputs: {},
             run_id: "run001",
             artifacts_dir: tmpDir,
         });
@@ -73,7 +64,6 @@ describe("writeStepContextFile", () => {
         assert.strictEqual(path.basename(filePath), "run001_planner_0_context.json");
         const data = JSON.parse(fs.readFileSync(filePath, "utf-8")) as StepContext;
         assert.strictEqual(data.reads.length, 0);
-        assert.strictEqual(Object.keys(data.inputs).length, 0);
         assert.strictEqual(data.output, undefined);
     });
 
@@ -85,7 +75,6 @@ describe("writeStepContextFile", () => {
             step_index: 2,
             agent: "reviewer",
             reads: ["context.md"],
-            inputs: {},
             run_id: "run002",
             artifacts_dir: tmpDir,
         });
@@ -104,7 +93,6 @@ describe("writeStepContextFile", () => {
             step_index: 0,
             agent: "scout",
             reads: [],
-            inputs: {},
             run_id: runId,
             artifacts_dir: tmpDir,
         });
@@ -118,9 +106,9 @@ describe("writeStepContextFile", () => {
         tmpDir = mkTempDir();
         const runId = "abc12345";
 
-        writeStepContextFile(tmpDir, { chain_dir: "/tmp/chain", step_index: 0, agent: "scout", reads: [], inputs: {}, run_id: runId, artifacts_dir: tmpDir });
-        writeStepContextFile(tmpDir, { chain_dir: "/tmp/chain", step_index: 1, agent: "planner", reads: [], inputs: {}, run_id: runId, artifacts_dir: tmpDir });
-        writeStepContextFile(tmpDir, { chain_dir: "/tmp/chain", step_index: 2, agent: "worker", reads: [], inputs: {}, run_id: runId, artifacts_dir: tmpDir });
+        writeStepContextFile(tmpDir, { chain_dir: "/tmp/chain", step_index: 0, agent: "scout", reads: [], run_id: runId, artifacts_dir: tmpDir });
+        writeStepContextFile(tmpDir, { chain_dir: "/tmp/chain", step_index: 1, agent: "planner", reads: [], run_id: runId, artifacts_dir: tmpDir });
+        writeStepContextFile(tmpDir, { chain_dir: "/tmp/chain", step_index: 2, agent: "worker", reads: [], run_id: runId, artifacts_dir: tmpDir });
 
         assert.ok(fs.existsSync(path.join(tmpDir, "abc12345_scout_0_context.json")));
         assert.ok(fs.existsSync(path.join(tmpDir, "abc12345_planner_1_context.json")));
