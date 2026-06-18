@@ -8,15 +8,9 @@ export interface StepContext {
     task: string;
     output?: string;
     reads: string[];
-    inputs: Record<string, StepInputEntry>;
     run_id: string;
     artifacts_dir: string;
     sessionFile?: string;
-}
-
-export interface StepInputEntry {
-    text: string;
-    structured?: unknown;
 }
 
 export function writeStepContextFile(artifactsDir: string, context: StepContext): string {

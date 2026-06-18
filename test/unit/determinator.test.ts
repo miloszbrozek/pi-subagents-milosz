@@ -61,7 +61,6 @@ describe("loadContextFile", () => {
       agent: "determinator",
       output: path.join(dir, "output.md"),
       reads: [path.join(dir, "input.md")],
-      inputs: {},
       run_id: "r1",
       artifacts_dir: path.join(dir, "artifacts"),
       sessionFile: path.join(dir, "session.jsonl"),
@@ -101,7 +100,6 @@ describe("getStepContextFile", () => {
       step_index: 0,
       agent: "scout",
       reads: ["plan.md"],
-      inputs: {},
       run_id: runId,
       artifacts_dir: dir,
     };
@@ -118,7 +116,7 @@ describe("getStepContextFile", () => {
     const runId = "run-getstep-2";
     fs.writeFileSync(
       path.join(dir, `${runId}_scout_0_context.json`),
-      JSON.stringify({ chain_dir: dir, step_index: 0, agent: "scout", reads: [], inputs: {}, run_id: runId, artifacts_dir: dir }),
+      JSON.stringify({ chain_dir: dir, step_index: 0, agent: "scout", reads: [], run_id: runId, artifacts_dir: dir }),
       "utf-8",
     );
 
@@ -154,9 +152,9 @@ describe("getStepContextFile", () => {
   it("returns correct step for a later index among multiple steps", () => {
     const dir = makeTempDir();
     const runId = "run-getstep-5";
-    fs.writeFileSync(path.join(dir, `${runId}_scout_0_context.json`), JSON.stringify({ step_index: 0, agent: "scout", reads: [], inputs: {}, run_id: runId, artifacts_dir: dir, chain_dir: dir }), "utf-8");
-    fs.writeFileSync(path.join(dir, `${runId}_planner_1_context.json`), JSON.stringify({ step_index: 1, agent: "planner", reads: [], inputs: {}, run_id: runId, artifacts_dir: dir, chain_dir: dir }), "utf-8");
-    fs.writeFileSync(path.join(dir, `${runId}_worker_2_context.json`), JSON.stringify({ step_index: 2, agent: "worker", reads: [], inputs: {}, run_id: runId, artifacts_dir: dir, chain_dir: dir }), "utf-8");
+    fs.writeFileSync(path.join(dir, `${runId}_scout_0_context.json`), JSON.stringify({ step_index: 0, agent: "scout", reads: [], run_id: runId, artifacts_dir: dir, chain_dir: dir }), "utf-8");
+    fs.writeFileSync(path.join(dir, `${runId}_planner_1_context.json`), JSON.stringify({ step_index: 1, agent: "planner", reads: [], run_id: runId, artifacts_dir: dir, chain_dir: dir }), "utf-8");
+    fs.writeFileSync(path.join(dir, `${runId}_worker_2_context.json`), JSON.stringify({ step_index: 2, agent: "worker", reads: [], run_id: runId, artifacts_dir: dir, chain_dir: dir }), "utf-8");
 
     const result = getStepContextFile(dir, runId, 2);
     assert.ok(result);
