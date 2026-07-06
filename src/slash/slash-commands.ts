@@ -22,6 +22,7 @@ import { scheduledRunStorePath } from "../runs/background/scheduled-runs.ts";
 import { SUBAGENT_FANOUT_CHILD_ENV } from "../runs/shared/pi-args.ts";
 import { assertJsonSchemaObject } from "../runs/shared/structured-output.ts";
 import { validateAcceptanceInput } from "../runs/shared/acceptance.ts";
+import { buildRichReportMarkdown } from "../shared/formatters.ts";
 import type { SlashSubagentResponse, SlashSubagentUpdate } from "./slash-bridge.ts";
 import { registerPromptWorkflowCommands } from "./prompt-workflows.ts";
 import { openSubagentFleet } from "../tui/fleet.ts";
@@ -33,6 +34,7 @@ import {
 	resolveSlashMessageDetails,
 } from "./slash-live-state.ts";
 import {
+	RICH_REPORT_TYPE,
 	SLASH_RESULT_TYPE,
 	SLASH_TEXT_RESULT_TYPE,
 	SLASH_SUBAGENT_CANCEL_EVENT,
@@ -709,6 +711,23 @@ async function runSlashSubagent(
 			details: finalDetails,
 		});
 		persistSlashSessionSnapshot(ctx);
+
+		// Rich markdown report for readable session replay
+		const responseDetails = response.result.details;
+		if (responseDetails && responseDetails.results.length > 0) {
+			const richReport = buildRichReportMarkdown({
+				details: responseDetails,
+				runId: responseDetails.runId,
+				artifactsDir: responseDetails.artifacts?.dir,
+			});
+			pi.sendMessage({
+				customType: RICH_REPORT_TYPE,
+				content: richReport,
+				display: true,
+			});
+			persistSlashSessionSnapshot(ctx);
+		}
+
 		if (ctx.hasUI) {
 			ctx.ui.setStatus("subagent-slash", undefined);
 		}
