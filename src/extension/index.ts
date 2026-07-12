@@ -36,6 +36,7 @@ import { registerMainWatchdog } from "../watchdog/register-main.ts";
 import { registerSlashSubagentBridge } from "../slash/slash-bridge.ts";
 import { createNativeSupervisorChannel } from "../intercom/native-supervisor-channel.ts";
 import { registerSubagentRpcBridge } from "./rpc.ts";
+import { registerOrchestratorBridge } from "../orchestrator/orchestrator-bridge.ts";
 import { clearSlashSnapshots, getSlashRenderableSnapshot, resolveSlashMessageDetails, restoreSlashFinalSnapshots, type SlashMessageDetails } from "../slash/slash-live-state.ts";
 import { inspectSubagentStatus } from "../runs/background/run-status.ts";
 import { resolveWaitToolConfig } from "../runs/background/subagent-wait.ts";
@@ -387,6 +388,13 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 			executeSubagentCollapsed(id, params, signal, onUpdate, ctx),
 	});
 
+	const orchestratorBridge = registerOrchestratorBridge({
+		events: pi.events,
+		getContext: () => state.lastUiContext,
+		execute: (id, params, signal, onUpdate, ctx) =>
+			executeSubagentCollapsed(id, params, signal, onUpdate, ctx),
+	});
+
 	const promptTemplateBridge = registerPromptTemplateDelegationBridge({
 		events: pi.events,
 		getContext: () => state.lastUiContext,
@@ -594,6 +602,7 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 		clearSlashSnapshots();
 		slashBridge.cancelAll();
 		slashBridge.dispose();
+		orchestratorBridge.dispose();
 		promptTemplateBridge.cancelAll();
 		promptTemplateBridge.dispose();
 		supervisorChannel.dispose();
