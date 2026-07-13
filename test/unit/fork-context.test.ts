@@ -108,6 +108,7 @@ describe("createForkContextResolver", () => {
 				openSession: (sessionFile: string) => {
 					openedPaths.push(sessionFile);
 					return {
+						getLeafId: () => "leaf-xyz",
 						createBranchedSession: (leafId: string) => {
 							seenLeafIds.push(leafId);
 							const childSessionFile = path.join(tempDir, `child-${seenLeafIds.length}.jsonl`);
@@ -194,6 +195,7 @@ describe("createForkContextResolver", () => {
 				getLeafId: () => "leaf-abc",
 			}, "fork", {
 				openSession: () => ({
+					getLeafId: () => "leaf-abc",
 					createBranchedSession: () => {
 						count++;
 						const childSessionFile = path.join(tempDir, `fork-${count}.jsonl`);
@@ -227,6 +229,7 @@ describe("createForkContextResolver", () => {
 				getLeafId: () => "leaf-abc",
 			}, "fork", {
 				openSession: () => ({
+					getLeafId: () => "leaf-abc",
 					createBranchedSession: () => {
 						calls++;
 						const childSessionFile = path.join(tempDir, `fork-${calls}.jsonl`);
@@ -470,6 +473,7 @@ describe("createForkContextResolver", () => {
 				getLeafId: () => "leaf-abc",
 			}, "fork", {
 				openSession: () => ({
+					getLeafId: () => "leaf-abc",
 					createBranchedSession: () => missingChildSessionFile,
 				}),
 			});
@@ -493,6 +497,7 @@ describe("createForkContextResolver", () => {
 				getLeafId: () => "leaf-abc",
 			}, "fork", {
 				openSession: () => ({
+					getLeafId: () => "leaf-abc",
 					createBranchedSession: () => undefined,
 				}),
 			});
