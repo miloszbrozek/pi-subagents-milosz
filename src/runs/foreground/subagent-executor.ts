@@ -174,6 +174,10 @@ export interface SubagentParamsLike {
 	acceptance?: AcceptanceInput;
 	schedule?: string;
 	scheduleName?: string;
+	/** Absolute path to an existing session file — reuse this session instead of creating a new one */
+	sessionFile?: string;
+	/** Extension paths to append to the agent's default extensions for this run */
+	extraExtensions?: string[];
 }
 
 interface ExecutorDeps {
@@ -3091,6 +3095,7 @@ async function runSinglePath(data: ExecutionContextData, deps: ExecutorDeps): Pr
 		runId,
 		sessionDir: sessionDirForIndex(0),
 		sessionFile: sessionFileForTask(params.agent!, 0, modelOverride),
+		extraExtensions: params.extraExtensions,
 		share: shareEnabled,
 		artifactsDir: artifactConfig.enabled ? artifactsDir : undefined,
 		artifactConfig,

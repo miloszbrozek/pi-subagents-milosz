@@ -1104,6 +1104,8 @@ export interface RunSyncOptions {
 	modelScope?: ModelScopeConfig;
 	/** Skills to make available (overrides agent default if provided) */
 	skills?: string[];
+	/** Extension paths to append to the agent's default extensions for this run */
+	extraExtensions?: string[];
 	structuredOutput?: {
 		schema: JsonSchemaObject;
 		schemaPath: string;
