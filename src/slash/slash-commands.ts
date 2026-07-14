@@ -1580,7 +1580,6 @@ export function registerSlashCommands(
 					exitCode: number;
 					output: string;
 					structuredOutput?: unknown;
-					extractionDurationMs?: number;
 					durationMs?: number;
 				}
 
@@ -1607,16 +1606,8 @@ export function registerSlashCommands(
 				}
 				for (const r of response.results) {
 					const icon = r.exitCode === 0 ? "✅" : "❌";
-					const agentSecs = r.extractionDurationMs
-						? `${(((r.durationMs ?? 0) - r.extractionDurationMs) / 1000).toFixed(1)}s`
-						: null;
-					const extractSecs = r.extractionDurationMs
-						? `${(r.extractionDurationMs / 1000).toFixed(1)}s`
-						: null;
-					const timing = extractSecs
-						? `(agent: ${agentSecs} + extraction: ${extractSecs})`
-						: "";
-					lines.push(`${icon} **${r.agent}** (exit ${r.exitCode}) ${timing}`);
+					const dur = r.durationMs ? `${(r.durationMs / 1000).toFixed(1)}s` : "";
+					lines.push(`${icon} **${r.agent}** (exit ${r.exitCode})${dur ? ` ${dur}` : ""}`);
 					if (r.structuredOutput) {
 						lines.push("```json");
 						lines.push(JSON.stringify(r.structuredOutput, null, 2));
