@@ -5,3 +5,6 @@ AGENTS.md
 node_modules/
 .fallow/
 tmp/
+.pi
+
+package-lock.json
