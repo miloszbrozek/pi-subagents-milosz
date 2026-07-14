@@ -88,6 +88,7 @@ import {
 	type Details,
 	type ExtensionConfig,
 	type IntercomEventBus,
+	type JsonSchemaObject,
 	type MaxOutputConfig,
 	type NestedRouteInfo,
 	type NestedRunSummary,
@@ -115,6 +116,7 @@ import {
 	resolveCurrentMaxSubagentDepth,
 	wrapForkTask,
 } from "../../shared/types.ts";
+import { cleanupStructuredOutputRuntime, createStructuredOutputRuntime } from "../shared/structured-output.ts";
 
 const MUTATING_MANAGEMENT_ACTIONS = new Set(["create", "update", "delete", "eject", "disable", "enable", "reset", "watchdog.configure"]);
 interface TaskParam {
@@ -178,6 +180,8 @@ export interface SubagentParamsLike {
 	sessionFile?: string;
 	/** Extension paths to append to the agent's default extensions for this run */
 	extraExtensions?: string[];
+	/** JSON Schema for structured output validation */
+	outputSchema?: JsonSchemaObject;
 }
 
 interface ExecutorDeps {
@@ -3085,6 +3089,10 @@ async function runSinglePath(data: ExecutionContextData, deps: ExecutorDeps): Pr
 		: undefined;
 
 	const deadlineAt = data.deadlineAt ?? (data.timeoutMs !== undefined ? Date.now() + data.timeoutMs : undefined);
+	const structuredRuntime = params.outputSchema
+		? createStructuredOutputRuntime(params.outputSchema, params.chainDir)
+		: undefined;
+
 	const r = await runSync(ctx.cwd, agents, params.agent!, task, {
 		parentSessionId: ctx.sessionManager.getSessionId() ?? undefined,
 		cwd: effectiveCwd,
@@ -3117,6 +3125,7 @@ async function runSinglePath(data: ExecutionContextData, deps: ExecutorDeps): Pr
 		preferredModelProvider: currentProvider,
 		modelScope: data.modelScope,
 		skills: effectiveSkills,
+		structuredOutput: structuredRuntime,
 		acceptance: params.acceptance,
 		acceptanceContext: { mode: "single" },
 		onDetachedExit: (result) => updateRememberedForegroundChild(deps.state, { runId, mode: "single", cwd: effectiveCwd, sessionId: data.parentSessionId, index: 0, result, events: deps.pi.events }),
@@ -3125,6 +3134,7 @@ async function runSinglePath(data: ExecutionContextData, deps: ExecutorDeps): Pr
 		turnBudget: data.turnBudget,
 		toolBudget: effectiveToolBudget.toolBudget,
 	});
+	cleanupStructuredOutputRuntime(structuredRuntime);
 	if (foregroundControl?.currentIndex === 0) {
 		foregroundControl.interrupt = undefined;
 		foregroundControl.currentActivityState = r.progress?.activityState;
