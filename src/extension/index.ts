@@ -37,6 +37,7 @@ import { registerSlashSubagentBridge } from "../slash/slash-bridge.ts";
 import { createNativeSupervisorChannel } from "../intercom/native-supervisor-channel.ts";
 import { registerSubagentRpcBridge } from "./rpc.ts";
 import { registerOrchestratorBridge } from "../orchestrator/orchestrator-bridge.ts";
+import { registerOrchExit } from "../orchestrator/orch-exit.ts";
 import { clearSlashSnapshots, getSlashRenderableSnapshot, resolveSlashMessageDetails, restoreSlashFinalSnapshots, type SlashMessageDetails } from "../slash/slash-live-state.ts";
 import { inspectSubagentStatus } from "../runs/background/run-status.ts";
 import { resolveWaitToolConfig } from "../runs/background/subagent-wait.ts";
@@ -476,6 +477,7 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 
 	};
 
+	registerOrchExit(pi);
 	pi.registerTool(tool);
 
 	registerWaitTool(pi, state, waitToolConfig.enabled);

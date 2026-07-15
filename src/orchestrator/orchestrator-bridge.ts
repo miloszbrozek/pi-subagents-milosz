@@ -297,6 +297,39 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 				return result;
 			};
 
+			// Owiń runStep żeby wysyłać update'y dla kroków nie-agentowych
+			const originalRunStep = orchestratorCtx.runStep.bind(orchestratorCtx);
+			orchestratorCtx.runStep = async <T>(stepConfig: { label: string }, fn: () => Promise<T>): Promise<T> => {
+				const stepIndex = results.length;
+				orchestratorCtx.log(`[step ${stepIndex}] Step '${stepConfig.label}' starting`);
+
+				options.events.emit(ORCHESTRATOR_UPDATE_EVENT, {
+					requestId,
+					step: stepIndex,
+					agent: stepConfig.label,
+					status: "running",
+				} as OrchestratorUpdate);
+
+				try {
+					const result = await originalRunStep(stepConfig, fn);
+					options.events.emit(ORCHESTRATOR_UPDATE_EVENT, {
+						requestId,
+						step: stepIndex,
+						agent: stepConfig.label,
+						status: "completed",
+					} as OrchestratorUpdate);
+					return result;
+				} catch (err) {
+					options.events.emit(ORCHESTRATOR_UPDATE_EVENT, {
+						requestId,
+						step: stepIndex,
+						agent: stepConfig.label,
+						status: "failed",
+					} as OrchestratorUpdate);
+					throw err;
+				}
+			};
+
 			orchestratorCtx.log("Script loaded, executing...");
 
 			// Odpal flow z timeoutem

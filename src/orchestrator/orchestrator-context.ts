@@ -8,6 +8,7 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { SubagentParamsLike } from "../runs/foreground/subagent-executor.ts";
@@ -96,6 +97,20 @@ export interface WorktreeBlockResult {
 	patch: string;
 }
 
+/** Konfiguracja kroku interaktywnego */
+export interface InteractiveStepConfig {
+	/** Prompt / pytania do użytkownika (opis tego co ma dostarczyć) */
+	prompt: string;
+	/** Czytelna etykieta kroku (do logów) */
+	label?: string;
+	/** Nazwa pliku wyjściowego (domyślnie: "interactive-output.md") */
+	outputFile?: string;
+	/** Nazwa nowego taba zellij (domyślnie: "Orch: Interactive") */
+	zellijTabName?: string;
+	/** Maksymalny czas oczekiwania w ms (domyślnie: brak) */
+	timeoutMs?: number;
+}
+
 /** Konfiguracja retry dla withRetry */
 export interface RetryConfig {
 	/** Maksymalna liczba prób (włącznie z pierwszą) */
@@ -167,6 +182,19 @@ export interface OrchestratorContext {
 	args: string[];
 	/** Log do debugu */
 	log(message: string): void;
+
+	/**
+	 * Wykonuje dowolny krok (deterministyczny, interaktywny, etc.) z etykietą.
+	 * Loguje start/koniec i mierzy czas wykonania.
+	 */
+	runStep<T>(config: { label: string }, fn: () => Promise<T>): Promise<T>;
+
+	/**
+	 * Otwiera nowy tab zellij z interaktywną sesją pi.
+	 * Użytkownik pracuje w sesji, a gdy skończy wpisuje /orch-exit.
+	 * Po zamknięciu sesji zwraca zawartość zebranego pliku output.
+	 */
+	interactiveStep(config: InteractiveStepConfig): Promise<string>;
 }
 
 // ── Implementacja ───────────────────────────────────────────────────────
@@ -429,10 +457,149 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 		}
 	};
 
+	const runStep = async <T>(stepConfig: { label: string }, fn: () => Promise<T>): Promise<T> => {
+		const startTime = Date.now();
+		log(`[runStep] Starting: ${stepConfig.label}`);
+		try {
+			const result = await fn();
+			const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+			log(`[runStep] Done: ${stepConfig.label} (${duration}s)`);
+			return result;
+		} catch (err) {
+			const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+			log(`[runStep] Failed: ${stepConfig.label} (${duration}s): ${err instanceof Error ? err.message : String(err)}`);
+			throw err;
+		}
+	};
+
+	const interactiveStep = async (config: InteractiveStepConfig): Promise<string> => {
+		const outputFile = config.outputFile ?? "interactive-output.md";
+		const outputPath = path.resolve(deps.chainDir, outputFile);
+		const briefFileName = "interactive-brief.md";
+		const briefPath = path.resolve(deps.chainDir, briefFileName);
+		const label = config.label ?? "Interactive step";
+
+		// 1. Utwórz plik brief z instrukcjami
+		const briefContent = [
+			"# Interactive Session",
+			"",
+			config.prompt,
+			"",
+			"---",
+			"",
+			"## Instructions",
+			"",
+			"1. Work through the task above in this pi session.",
+			"2. When you have gathered all necessary information, type `/orch-exit` to save and exit.",
+			"3. The session will be saved automatically and the tab will close.",
+			"",
+		].join("\n");
+
+		fs.mkdirSync(deps.chainDir, { recursive: true });
+		fs.writeFileSync(briefPath, briefContent, "utf-8");
+		log(`[interactive] Brief written to ${briefPath}`);
+
+		// 2. Uruchom zellij tab z pi (nazwa z suffixem runId dla unikalności)
+		const tabName = (config.zellijTabName ?? "Orch: Interactive") + ` (${deps.runId.slice(0, 8)})`;
+		const shellCmd = [
+			`export ORCH_OUTPUT_FILE="${outputPath}"`,
+			`echo ""`,
+			`cat "${briefPath}"`,
+			`echo ""`,
+			`echo "─────────────────────────────────────────────"`,
+			`echo "Type /orch-exit when done to save and close."`,
+			`echo "─────────────────────────────────────────────"`,
+			`echo ""`,
+			`exec pi`,
+		].join("\n");
+
+		const zellijCmd = [
+			"zellij", "action", "new-tab",
+			"--close-on-exit",
+			"--name", tabName,
+			"--cwd", deps.cwd,
+			"--", "bash", "-c", shellCmd,
+		];
+
+		log(`[interactive] Opening zellij tab: ${tabName}`);
+
+		let tabId: string;
+		try {
+			tabId = execFileSync(zellijCmd[0]!, zellijCmd.slice(1), {
+				encoding: "utf-8",
+				timeout: config.timeoutMs,
+				stdio: ["pipe", "pipe", "pipe"],
+			}).trim();
+			log(`[interactive] Tab opened: id=${tabId}`);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			log(`[interactive] Failed to open zellij tab: ${msg}`);
+			if (err && typeof err === "object" && "stderr" in err) {
+				const stderr = String((err as { stderr: unknown }).stderr).trim();
+				if (stderr) log(`[interactive] Zellij stderr: ${stderr}`);
+			}
+			throw new Error(`Failed to open zellij tab: ${msg}`);
+		}
+
+		if (!tabId) {
+			throw new Error("Zellij did not return a tab ID");
+		}
+
+		// 3. Polluj aż karta zniknie
+		const pollIntervalMs = 500;
+		const pollStart = Date.now();
+		while (true) {
+			if (config.timeoutMs && (Date.now() - pollStart) > config.timeoutMs) {
+				throw new Error(`Interactive step timed out after ${config.timeoutMs / 1000}s`);
+			}
+
+			await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+
+			try {
+				const tabs = execFileSync("zellij", ["action", "list-tabs"], {
+					encoding: "utf-8",
+					stdio: ["pipe", "pipe", "pipe"],
+				});
+				const tabExists = tabs.split("\n").some((line) => line.startsWith(tabId + " "));
+				if (!tabExists) {
+					log(`[interactive] Tab ${tabId} closed`);
+					break;
+				}
+			} catch {
+				log(`[interactive] list-tabs failed, assuming tab ${tabId} closed`);
+				break;
+			}
+		}
+
+		// 3. Sprawdź czy plik output istnieje
+		if (!fs.existsSync(outputPath)) {
+			throw new Error(
+				`Interactive step "${label}" completed but no output file was created at ${outputPath}. ` +
+				"Make sure you typed /orch-exit in the pi session before closing the tab.",
+			);
+		}
+
+		// 4. Odczytaj i zwróć zawartość
+		const content = fs.readFileSync(outputPath, "utf-8");
+		const sizeKB = (Buffer.byteLength(content, "utf-8") / 1024).toFixed(1);
+		log(`[interactive] Output: ${sizeKB} KB from ${outputPath}`);
+
+		return content;
+	};
+
+	const interactiveStepWrapped = async (config: InteractiveStepConfig): Promise<string> => {
+		return runStep(
+			{ label: config.label ?? "Interactive step" },
+			() => interactiveStep(config),
+		);
+	};
+
 	return {
 		runAgent,
 		withRetry,
 		runInWorktree,
+		runStep,
+		interactiveStep: interactiveStepWrapped,
 		chainDir: deps.chainDir,
 		runId: deps.runId,
 		cwd: deps.cwd,

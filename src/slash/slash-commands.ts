@@ -1631,6 +1631,10 @@ export function registerSlashCommands(
 				ctx.ui.setStatus("orch", undefined);
 
 				const lines = ["## Orchestrator result\n"];
+				if (response.output) {
+					lines.push(response.output);
+					lines.push("");
+				}
 				if (response.error) {
 					lines.push(`❌ **Error**: ${response.error}`);
 					lines.push("");
