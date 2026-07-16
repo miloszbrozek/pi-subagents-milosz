@@ -11,6 +11,7 @@ import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as os from "node:os";
 import type { SubagentParamsLike } from "../runs/foreground/subagent-executor.ts";
 import type { Details, JsonSchemaObject, SingleResult } from "../shared/types.ts";
 import { getSingleResultOutput } from "../shared/utils.ts";
@@ -435,6 +436,7 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 				repo.baseCommit,
 				undefined,
 				"orchestrator",
+				os.tmpdir(),
 			);
 
 			setup = {
