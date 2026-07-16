@@ -1192,7 +1192,6 @@ export async function executeChain(params: ChainExecutionParams): Promise<ChainE
 			};
 			writeStepContextFile(artifactsDir, stepContext);
 			writeStepContextFile(chainDir, stepContext);
-		};			
 
 			const toolBudget = resolveChainToolBudget({ stepBudget: seqStep.toolBudget, runBudget: params.toolBudget, agentBudget: agentConfig?.toolBudget, configBudget: params.configToolBudget });
 			if (toolBudget.error) return buildChainExecutionErrorResult(toolBudget.error, {

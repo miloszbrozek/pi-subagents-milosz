@@ -3630,8 +3630,6 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 			...DEFAULT_ARTIFACT_CONFIG,
 			enabled: effectiveParams.artifacts !== false,
 		};
-		const artifactsDir = getArtifactsDir(parentSessionFile, effectiveCwd);
-
 		let sessionRoot: string;
 		if (effectiveParams.sessionDir) {
 			sessionRoot = path.resolve(deps.expandTilde(effectiveParams.sessionDir));
