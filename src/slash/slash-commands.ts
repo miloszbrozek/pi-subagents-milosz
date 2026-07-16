@@ -1676,7 +1676,4 @@ export function registerSlashCommands(
 			}
 		}
 	});
-
-
 }
-		sessionFile: params.sessionFile ?? sessionFileForIndex(0),
