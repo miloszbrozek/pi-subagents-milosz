@@ -21,7 +21,7 @@ import {
 	ORCHESTRATOR_UPDATE_EVENT,
 	type Details,
 } from "../../src/shared/types.ts";
-import type { OrchestratorContext } from "../../src/orchestrator/orchestrator-context.ts";
+import type { OrchestratorContext, OrchestratorStepResult } from "../../src/orchestrator/orchestrator-context.ts";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -583,30 +583,6 @@ describe("orchestrator bridge", () => {
 			assert.match(logContent, /step 2: running agent/);
 			assert.match(logContent, /step 3: done/);
 		});
-
-		it("script results take precedence over auto-tracked results", async () => {
-			const scriptPath = writeOrchScript(tempDir, "custom-results-orch.ts", `
-				export default {
-					async flow(ctx) {
-						await ctx.runAgent({ agent: "scout", task: "scan" });
-						// Return custom results — only the planner result should be in final output
-						return {
-							output: "custom override",
-							results: [{ agent: "custom", exitCode: 0, output: "custom output" }]
-						};
-					}
-				};
-			`);
-
-			const mockExec = createMockExecute();
-			mockExec.setResponses([makeSuccessResult("scout", "scan done")]);
-
-			const { response } = await sendOrchRequest(scriptPath, mockExec);
-
-			assert.equal(response.output, "custom override");
-			// Custom results take precedence over tracked results
-			assert.equal((response.results as Array<{ agent: string }>)[0].agent, "custom");
-		});
 	});
 });
 
@@ -640,9 +616,9 @@ describe("loadStepResults", () => {
 		const resultsDir = path.join(dir, "step-results");
 		fs.mkdirSync(resultsDir, { recursive: true });
 
-		fs.writeFileSync(path.join(resultsDir, "1.json"), JSON.stringify({ agent: "worker", exitCode: 0, output: "step1" }));
-		fs.writeFileSync(path.join(resultsDir, "0.json"), JSON.stringify({ agent: "scout", exitCode: 0, output: "step0" }));
-		fs.writeFileSync(path.join(resultsDir, "2.json"), JSON.stringify({ agent: "reviewer", exitCode: 0, output: "step2" }));
+		fs.writeFileSync(path.join(resultsDir, "1.json"), JSON.stringify({ type: "agent", agent: "worker", exitCode: 0, index: 1, label: "Worker", durationMs: 100 }));
+		fs.writeFileSync(path.join(resultsDir, "0.json"), JSON.stringify({ type: "agent", agent: "scout", exitCode: 0, index: 0, label: "Scout", durationMs: 50 }));
+		fs.writeFileSync(path.join(resultsDir, "2.json"), JSON.stringify({ type: "agent", agent: "reviewer", exitCode: 0, index: 2, label: "Reviewer", durationMs: 200 }));
 
 		const results = loadStepResults(dir);
 		assert.equal(results.length, 3);
@@ -656,9 +632,9 @@ describe("loadStepResults", () => {
 		const resultsDir = path.join(dir, "step-results");
 		fs.mkdirSync(resultsDir, { recursive: true });
 
-		fs.writeFileSync(path.join(resultsDir, "0.json"), JSON.stringify({ agent: "scout", exitCode: 0, output: "ok" }));
+		fs.writeFileSync(path.join(resultsDir, "0.json"), JSON.stringify({ type: "agent", agent: "scout", exitCode: 0, index: 0, label: "Scout", durationMs: 50 }));
 		fs.writeFileSync(path.join(resultsDir, "notes.txt"), "ignored");
-		fs.writeFileSync(path.join(resultsDir, "abc.json"), JSON.stringify({ agent: "bad", exitCode: 1 })); // non-numeric name
+		fs.writeFileSync(path.join(resultsDir, "abc.json"), JSON.stringify({ type: "agent", agent: "bad", exitCode: 1, index: -1, label: "Bad", durationMs: 0 })); // non-numeric name
 
 		const results = loadStepResults(dir);
 		assert.equal(results.length, 1);
@@ -671,7 +647,7 @@ describe("loadStepResults", () => {
 		fs.mkdirSync(resultsDir, { recursive: true });
 
 		fs.writeFileSync(path.join(resultsDir, "0.json"), "not valid json");
-		fs.writeFileSync(path.join(resultsDir, "1.json"), JSON.stringify({ agent: "worker", exitCode: 0, output: "ok" }));
+		fs.writeFileSync(path.join(resultsDir, "1.json"), JSON.stringify({ type: "agent", agent: "worker", exitCode: 0, index: 1, label: "Worker", durationMs: 0 }));
 
 		const results = loadStepResults(dir);
 		assert.equal(results.length, 1);
@@ -689,19 +665,25 @@ describe("generateFlowSummary", () => {
 		assert.ok(md.includes("**Steps**: 0"), "should show 0 steps");
 	});
 
-	it("includes step table for non-empty results", () => {
-		const results = [
-			{ agent: "scout", exitCode: 0, output: "ok", durationMs: 1000, model: "test", usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0.001 } },
+	it("includes step table for non-empty results (all step types)", () => {
+		const steps: OrchestratorStepResult[] = [
+			{ type: "deterministic", index: 0, label: "Setup", durationMs: 200, exitCode: 0 },
+			{ type: "agent", index: 1, label: "Code scan", agent: "scout", exitCode: 0, durationMs: 1000, model: "test-model", usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0.001 } },
+			{ type: "interactive", index: 2, label: "User input", durationMs: 5000, exitCode: 0, outputPreview: "some user input" },
 		];
-		const md = generateFlowSummary("/tmp/test.ts", "run-1", results, "/tmp/chain", "success");
+		const md = generateFlowSummary("/tmp/test.ts", "run-1", steps, "/tmp/chain", "success");
 		assert.ok(md.includes("✅ Success"));
-		assert.ok(md.includes("scout"));
-		assert.ok(md.includes("1.0s"));
+		assert.ok(md.includes("Setup"), "should include deterministic step");
+		assert.ok(md.includes("Code scan"), "should include agent step");
+		assert.ok(md.includes("User input"), "should include interactive step");
+		assert.ok(md.includes("scout"), "should include agent name");
+		assert.ok(md.includes("1.0s"), "should show duration");
+		assert.ok(md.includes("**Steps**: 3"), "should show 3 steps");
 	});
 
 	it("returns fallback on unexpected error", () => {
-		const results = [{} as any];
-		const md = generateFlowSummary("/tmp/test.ts", "run-1", results, "/tmp/chain", "success");
+		const steps = [{} as any];
+		const md = generateFlowSummary("/tmp/test.ts", "run-1", steps, "/tmp/chain", "success");
 		assert.ok(typeof md === "string");
 		assert.ok(md.length > 0);
 	});

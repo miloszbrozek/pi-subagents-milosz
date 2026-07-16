@@ -3,7 +3,7 @@
  *
  * Rejestruje:
  * - tool "orch_save_and_exit": zapisuje sformatowany markdown do ORCH_OUTPUT_FILE i wywołuje shutdown
- * - komendę "/orch-exit": prosi LLM o sformatowanie sesji i wywołanie orch_save_and_exit
+ * - komendę "/pi-orch-exit": prosi LLM o sformatowanie sesji i wywołanie orch_save_and_exit
  */
 
 import * as fs from "node:fs";
@@ -18,7 +18,7 @@ export function registerOrchExit(pi: ExtensionAPI): void {
 		label: "Save and Exit",
 		description:
 			"Save the formatted session content to the output file and exit pi. " +
-			"Call this tool ONLY after the user has explicitly typed /orch-exit. " +
+			"Call this tool ONLY after the user has explicitly typed /pi-orch-exit. " +
 			"Format the entire conversation into a well-structured Markdown document first, " +
 			"then pass it as the content parameter.",
 		promptSnippet: "Save formatted session as Markdown and exit pi",
@@ -53,8 +53,8 @@ export function registerOrchExit(pi: ExtensionAPI): void {
 		},
 	});
 
-	// ── Command: /orch-exit ──────────────────────────────────────
-	pi.registerCommand("orch-exit", {
+	// ── Command: /pi-orch-exit ──────────────────────────────────────
+	pi.registerCommand("pi-orch-exit", {
 		description: "Save current session as Markdown and exit",
 		handler: async (_args, ctx) => {
 			const outputFile = process.env["ORCH_OUTPUT_FILE"];

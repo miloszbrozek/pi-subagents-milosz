@@ -22,7 +22,7 @@ import {
 	ORCHESTRATOR_UPDATE_EVENT,
 	type Details,
 } from "../shared/types.ts";
-import { createOrchestratorContext, OrchestratorAgentError, type OrchestratorContext, type OrchestratorRunAgentResult, type OrchestratorScript } from "./orchestrator-context.ts";
+import { createOrchestratorContext, OrchestratorAgentError, type OrchestratorContext, type OrchestratorRunAgentResult, type OrchestratorScript, type OrchestratorStepResult } from "./orchestrator-context.ts";
 
 // ── Typy ────────────────────────────────────────────────────────────────
 
@@ -35,7 +35,8 @@ interface OrchestratorRequest {
 interface OrchestratorResponse {
 	requestId: string;
 	output: string;
-	results: OrchestratorRunAgentResult[];
+	results: OrchestratorStepResult[];
+	allSteps?: OrchestratorStepResult[];
 	error?: string;
 	flowSummary?: string;
 }
@@ -66,9 +67,9 @@ interface OrchestratorBridgeOptions {
 
 // ── Helpers (exported for testing) ─────────────────────────────────────
 
-export function loadStepResults(dir: string): OrchestratorRunAgentResult[] {
+export function loadStepResults(dir: string): OrchestratorStepResult[] {
 	const resultsDir = path.join(dir, "step-results");
-	const results: OrchestratorRunAgentResult[] = [];
+	const results: OrchestratorStepResult[] = [];
 	try {
 		if (!fs.existsSync(resultsDir)) return results;
 		const files = fs.readdirSync(resultsDir)
@@ -79,7 +80,7 @@ export function loadStepResults(dir: string): OrchestratorRunAgentResult[] {
 		for (const idx of files) {
 			try {
 				const raw = fs.readFileSync(path.join(resultsDir, `${idx}.json`), "utf-8");
-				results.push(JSON.parse(raw) as OrchestratorRunAgentResult);
+				results.push(JSON.parse(raw) as OrchestratorStepResult);
 			} catch {
 				// best-effort per file
 			}
@@ -90,10 +91,22 @@ export function loadStepResults(dir: string): OrchestratorRunAgentResult[] {
 	return results;
 }
 
+const TYPE_ICONS: Record<OrchestratorStepResult["type"], string> = {
+	agent: "🤖",
+	deterministic: "⚙️",
+	interactive: "👤",
+};
+
+const TYPE_LABELS: Record<OrchestratorStepResult["type"], string> = {
+	agent: "Agent",
+	deterministic: "Deterministic",
+	interactive: "Interactive",
+};
+
 export function generateFlowSummary(
 	scriptPath: string,
 	runId: string,
-	rs: OrchestratorRunAgentResult[],
+	steps: OrchestratorStepResult[],
 	dir: string,
 	status: "success" | "failed",
 	errorMsg?: string,
@@ -101,35 +114,42 @@ export function generateFlowSummary(
 	try {
 		const statusIcon = status === "success" ? "✅ Success" : "❌ Failed";
 
+		const totalDuration = steps.reduce((sum, r) => sum + (r.durationMs ?? 0), 0);
+		const totalTokens = steps.reduce((sum, r) => sum + ((r.usage?.input ?? 0) + (r.usage?.output ?? 0)), 0);
+		const totalCost = steps.reduce((sum, r) => sum + (r.usage?.cost ?? 0), 0);
+		const agentSteps = steps.filter((s) => s.type === "agent");
+
 		const mdLines = [
 			`# Orchestrator Flow: ${path.basename(scriptPath)}`,
 			"",
 			`**Run ID**: ${runId}`,
-			`**Status**: ${statusIcon} | **Steps**: ${rs.length}`,
+			`**Status**: ${statusIcon} | **Duration**: ${(totalDuration / 1000).toFixed(1)}s | **Steps**: ${steps.length}`,
 		];
+		if (agentSteps.length > 0) {
+			mdLines.push(`**Tokens**: ${totalTokens} | **Cost**: $${totalCost.toFixed(4)}`);
+		}
 		if (errorMsg) {
 			mdLines.push(`**Error**: ${errorMsg}`);
 		}
 
-		if (rs.length > 0) {
-			const totalDuration = rs.reduce((sum, r) => sum + (r.durationMs ?? 0), 0);
-			const totalTokens = rs.reduce((sum, r) => sum + ((r.usage?.input ?? 0) + (r.usage?.output ?? 0)), 0);
-			const totalCost = rs.reduce((sum, r) => sum + (r.usage?.cost ?? 0), 0);
-			mdLines[3] = `**Status**: ${statusIcon} | **Duration**: ${(totalDuration / 1000).toFixed(1)}s | **Steps**: ${rs.length}`;
-			mdLines.push(`**Tokens**: ${totalTokens} | **Cost**: $${totalCost.toFixed(4)}`);
-
+		if (steps.length > 0) {
 			mdLines.push(
 				"",
-				"| # | Agent | Exit | Duration | Tokens | Cost | Model |",
-				"|---|-------|------|----------|--------|------|-------|",
+				"| # | Step | Type | Exit | Duration | Tokens | Cost | Model |",
+				"|---|------|------|------|----------|--------|------|-------|",
 			);
 
-			for (const r of rs) {
-				const dur = r.durationMs ? `${(r.durationMs / 1000).toFixed(1)}s` : "-";
-				const tok = (r.usage?.input ?? 0) + (r.usage?.output ?? 0) || "-";
-				const cost = r.usage?.cost != null ? `$${r.usage.cost.toFixed(4)}` : "-";
-				const icon = r.exitCode === 0 ? "✅" : "❌";
-				mdLines.push(`| ${rs.indexOf(r)} | ${r.agent} | ${icon} ${r.exitCode} | ${dur} | ${tok} | ${cost} | ${r.model ?? "-"} |`);
+			for (const s of steps) {
+				const dur = s.durationMs ? `${(s.durationMs / 1000).toFixed(1)}s` : "-";
+				const tok = s.type === "agent"
+					? ((s.usage?.input ?? 0) + (s.usage?.output ?? 0)) || "-"
+					: "-";
+				const cost = s.type === "agent" && s.usage?.cost != null
+					? `$${s.usage.cost.toFixed(4)}`
+					: "-";
+				const icon = s.exitCode === 0 ? "✅" : "❌";
+				const typeStr = `${TYPE_ICONS[s.type]} ${TYPE_LABELS[s.type]}${s.type === "agent" && s.agent ? ` (${s.agent})` : ""}`;
+				mdLines.push(`| ${s.index} | ${s.label} | ${typeStr} | ${icon} | ${dur} | ${tok} | ${cost} | ${s.model ?? "-"} |`);
 			}
 		}
 
@@ -141,6 +161,45 @@ export function generateFlowSummary(
 }
 
 // ── Bridge ──────────────────────────────────────────────────────────────
+
+/** Synchronizuje flow.json z aktualnym stanem allSteps (przyrostowo) */
+function syncFlowJsonFromAllSteps(
+	chainDir: string,
+	requestId: string,
+	resolvedPath: string,
+	flowStartTime: string,
+	orchestratorCtx: OrchestratorContext,
+): void {
+	try {
+		const flowPath = path.join(chainDir, "orchestrator-flow.json");
+		let flow: { runId: string; scriptPath: string; startTime: string; steps: unknown[] };
+		if (fs.existsSync(flowPath)) {
+			flow = JSON.parse(fs.readFileSync(flowPath, "utf-8"));
+		} else {
+			flow = { runId: requestId, scriptPath: resolvedPath, startTime: flowStartTime, steps: [] };
+		}
+		// Nadpisz steps z allSteps
+		flow.steps = orchestratorCtx.allSteps.map((s) => ({
+			index: s.index,
+			type: s.type,
+			label: s.label,
+			as: s.as,
+			exitCode: s.exitCode,
+			durationMs: s.durationMs,
+			agent: s.agent,
+			usage: s.usage,
+			model: s.model,
+			toolCount: s.toolCount,
+			outputPreview: s.outputPreview,
+			output: s.output,
+			structuredOutput: s.structuredOutput,
+			error: s.error,
+		}));
+		fs.writeFileSync(flowPath, JSON.stringify(flow, null, 2), "utf-8");
+	} catch {
+		// best-effort
+	}
+}
 
 export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): {
 	dispose: () => void;
@@ -173,8 +232,8 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 		// Persist session snapshot so agents can fork the parent session
 		persistOrchSessionSnapshot(ctx);
 
-		const results: OrchestratorRunAgentResult[] = [];
 		let chainDir: string | undefined;
+		let orchestratorCtx: OrchestratorContext | undefined;
 
 		// Rozwiąż ścieżkę
 		const resolvedPath = path.isAbsolute(scriptPath)
@@ -211,7 +270,7 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 			}
 
 			const timeoutMs = script.settings?.timeout ?? 300_000;
-			const orchestratorCtx = createOrchestratorContext({
+			orchestratorCtx = createOrchestratorContext({
 				execute: options.execute,
 				ctx,
 				chainDir,
@@ -226,7 +285,7 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 			// Owiń runAgent żeby auto-logować, pisać flow.json i wysyłać update'y
 			const originalRunAgent = orchestratorCtx.runAgent.bind(orchestratorCtx);
 			orchestratorCtx.runAgent = async (config) => {
-				const stepIndex = results.length;
+				const stepIndex = orchestratorCtx.allSteps.length;
 
 				// Auto-log startu (infrastruktura, nie skrypt)
 				orchestratorCtx.log(`[step ${stepIndex}] Agent '${config.agent}'${config.label ? ` (${config.label})` : ""} starting`);
@@ -251,8 +310,6 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 						throw err;
 					}
 				}
-				const stepDuration = Date.now() - stepStart;
-				results.push(result);
 
 				options.events.emit(ORCHESTRATOR_UPDATE_EVENT, {
 					requestId,
@@ -261,34 +318,8 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 					status: result.exitCode === 0 ? "completed" : "failed",
 				} as OrchestratorUpdate);
 
-				// Zapis flow.json — przyrostowo po każdym kroku
-				const flowPath = path.join(chainDir, "orchestrator-flow.json");
-				const flowEntry = {
-					index: stepIndex,
-					agent: config.agent,
-					as: config.as,
-					label: config.label,
-					task: config.task.slice(0, 200),
-					exitCode: result.exitCode,
-					usage: result.usage,
-					model: result.model,
-					durationMs: result.durationMs ?? stepDuration,
-					toolCount: result.toolCount,
-					outputPreview: result.output.slice(0, 200),
-					error: result.error,
-				};
-				try {
-					let flow: { runId: string; scriptPath: string; startTime: string; steps: unknown[] };
-					if (fs.existsSync(flowPath)) {
-						flow = JSON.parse(fs.readFileSync(flowPath, "utf-8"));
-					} else {
-						flow = { runId: requestId, scriptPath: resolvedPath, startTime: flowStartTime, steps: [] };
-					}
-					flow.steps.push(flowEntry);
-					fs.writeFileSync(flowPath, JSON.stringify(flow, null, 2), "utf-8");
-				} catch {
-					// best-effort
-				}
+				// Zapis flow.json — przyrostowo po każdym kroku (z allSteps)
+				syncFlowJsonFromAllSteps(chainDir, requestId, resolvedPath, flowStartTime, orchestratorCtx);
 
 				if (failedError) {
 					throw failedError;
@@ -300,7 +331,7 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 			// Owiń runStep żeby wysyłać update'y dla kroków nie-agentowych
 			const originalRunStep = orchestratorCtx.runStep.bind(orchestratorCtx);
 			orchestratorCtx.runStep = async <T>(stepConfig: { label: string }, fn: () => Promise<T>): Promise<T> => {
-				const stepIndex = results.length;
+				const stepIndex = orchestratorCtx.allSteps.length;
 				orchestratorCtx.log(`[step ${stepIndex}] Step '${stepConfig.label}' starting`);
 
 				options.events.emit(ORCHESTRATOR_UPDATE_EVENT, {
@@ -318,6 +349,7 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 						agent: stepConfig.label,
 						status: "completed",
 					} as OrchestratorUpdate);
+					syncFlowJsonFromAllSteps(chainDir, requestId, resolvedPath, flowStartTime, orchestratorCtx);
 					return result;
 				} catch (err) {
 					options.events.emit(ORCHESTRATOR_UPDATE_EVENT, {
@@ -326,6 +358,7 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 						agent: stepConfig.label,
 						status: "failed",
 					} as OrchestratorUpdate);
+					syncFlowJsonFromAllSteps(chainDir, requestId, resolvedPath, flowStartTime, orchestratorCtx);
 					throw err;
 				}
 			};
@@ -342,7 +375,7 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 			]);
 
 			const flowEndTime = new Date().toISOString();
-			const finalResults = scriptResult.results || results;
+			const allSteps = [...orchestratorCtx.allSteps];
 
 			// Finalizuj flow.json
 			const flowFp = path.join(chainDir, "orchestrator-flow.json");
@@ -351,22 +384,23 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 					const flow = JSON.parse(fs.readFileSync(flowFp, "utf-8"));
 					flow.endTime = flowEndTime;
 					flow.status = "success";
-					flow.totalDurationMs = finalResults.reduce((sum: number, r: OrchestratorRunAgentResult) => sum + (r.durationMs ?? 0), 0);
+					flow.totalDurationMs = allSteps.reduce((sum: number, s) => sum + (s.durationMs ?? 0), 0);
 					fs.writeFileSync(flowFp, JSON.stringify(flow, null, 2), "utf-8");
 				}
 			} catch {
 				// best-effort
 			}
 
-			// Wygeneruj flow-summary.md
-			const flowSummaryMd = generateFlowSummary(resolvedPath, requestId, finalResults, chainDir, "success");
+			// Wygeneruj flow-summary.md z allSteps
+			const flowSummaryMd = generateFlowSummary(resolvedPath, requestId, allSteps, chainDir, "success");
 			try { fs.writeFileSync(path.join(chainDir, "flow-summary.md"), flowSummaryMd, "utf-8"); } catch { /* best-effort */ }
 
 			const output = scriptResult.output || "Orchestrator completed.";
 			const response: OrchestratorResponse = {
 				requestId,
 				output,
-				results: finalResults,
+				results: allSteps,
+				allSteps,
 				flowSummary: flowSummaryMd,
 			};
 			options.events.emit(ORCHESTRATOR_RESPONSE_EVENT, response);
@@ -376,7 +410,7 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 
 			// Zapisz flow.json z errorem (utwórz jeśli nie istnieje)
 			let flowSummaryMd: string | undefined;
-			let effectiveResults = results;
+			let effectiveAllSteps: OrchestratorStepResult[] = [];
 			if (chainDir) {
 				const flowFp2 = path.join(chainDir, "orchestrator-flow.json");
 				try {
@@ -394,19 +428,20 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 					// best-effort
 				}
 
-				// Odtwórz results z plików step-results/ jeśli bridge ich nie zdążył zapisać
+			// Odtwórz allSteps z plików step-results/ jeśli bridge ich nie zdążył zapisać
 				const stepResults = loadStepResults(chainDir);
-				effectiveResults = results.length > 0 ? results : stepResults;
+				effectiveAllSteps = (orchestratorCtx && orchestratorCtx.allSteps.length > 0) ? [...orchestratorCtx.allSteps] : stepResults;
 
 				// Generuj flowSummary nawet przy failu
-				flowSummaryMd = generateFlowSummary(resolvedPath, requestId, effectiveResults, chainDir, "failed", message);
+				flowSummaryMd = generateFlowSummary(resolvedPath, requestId, effectiveAllSteps, chainDir, "failed", message);
 				try { fs.writeFileSync(path.join(chainDir, "flow-summary.md"), flowSummaryMd, "utf-8"); } catch { /* best-effort */ }
 			}
 
 			const response: OrchestratorResponse = {
 				requestId,
 				output: `Orchestrator failed:\n${message}\n\n${stack}`,
-				results: effectiveResults,
+				results: effectiveAllSteps,
+				allSteps: effectiveAllSteps,
 				error: message,
 				flowSummary: flowSummaryMd,
 			};

@@ -1631,10 +1631,6 @@ export function registerSlashCommands(
 				ctx.ui.setStatus("orch", undefined);
 
 				const lines = ["## Orchestrator result\n"];
-				if (response.output) {
-					lines.push(response.output);
-					lines.push("");
-				}
 				if (response.error) {
 					lines.push(`❌ **Error**: ${response.error}`);
 					lines.push("");
@@ -1642,7 +1638,9 @@ export function registerSlashCommands(
 				for (const r of response.results) {
 					const icon = r.exitCode === 0 ? "✅" : "❌";
 					const dur = r.durationMs ? `${(r.durationMs / 1000).toFixed(1)}s` : "";
-					lines.push(`${icon} **${r.agent}** (exit ${r.exitCode})${dur ? ` ${dur}` : ""}`);
+					if (r.agent) {
+						lines.push(`${icon} **${r.agent}** (exit ${r.exitCode})${dur ? ` ${dur}` : ""}`);
+					}
 					if (r.structuredOutput) {
 						lines.push("```json");
 						lines.push(JSON.stringify(r.structuredOutput, null, 2));
@@ -1659,6 +1657,10 @@ export function registerSlashCommands(
 				if (response.flowSummary) {
 					lines.push("---");
 					lines.push(response.flowSummary);
+				}
+				if (response.output) {
+					lines.push("");
+					lines.push(response.output);
 				}
 
 				pi.sendMessage({

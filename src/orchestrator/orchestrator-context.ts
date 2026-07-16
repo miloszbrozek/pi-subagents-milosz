@@ -33,7 +33,7 @@ export interface OrchestratorSettings {
 /** Kształt eksportu skryptu orchestratora */
 export interface OrchestratorScript {
 	/** Główna funkcja flowu */
-	flow: (ctx: OrchestratorContext) => Promise<{ output: string; results?: OrchestratorRunAgentResult[] }>;
+	flow: (ctx: OrchestratorContext) => Promise<{ output: string }>;
 	/** Opcjonalne ustawienia */
 	settings?: OrchestratorSettings;
 }
@@ -101,7 +101,7 @@ export interface WorktreeBlockResult {
 export interface InteractiveStepConfig {
 	/** Prompt / pytania do użytkownika (opis tego co ma dostarczyć) */
 	prompt: string;
-	/** Czytelna etykieta kroku (do logów) */
+	/** Czytelna etykieta kroku (do logów i flow summary) */
 	label?: string;
 	/** Nazwa pliku wyjściowego (domyślnie: "interactive-output.md") */
 	outputFile?: string;
@@ -109,6 +109,38 @@ export interface InteractiveStepConfig {
 	zellijTabName?: string;
 	/** Maksymalny czas oczekiwania w ms (domyślnie: brak) */
 	timeoutMs?: number;
+}
+
+/** Pojedynczy krok w flow (agentowy, deterministyczny lub interaktywny) */
+export interface OrchestratorStepResult {
+	/** Typ kroku */
+	type: "agent" | "deterministic" | "interactive";
+	/** Numer indeksu */
+	index: number;
+	/** Etykieta kroku */
+	label: string;
+	/** Czas trwania w ms */
+	durationMs: number;
+	/** Exit code (0 = sukces, 1 = błąd) */
+	exitCode: number;
+	/** Dla agentów: nazwa agenta */
+	agent?: string;
+	/** Identyfikator logiczny kroku (np. "scan", "plan") — z runAgent config.as */
+	as?: string;
+	/** Dla agentów: token usage */
+	usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
+	/** Dla agentów: model */
+	model?: string;
+	/** Dla agentów: liczba wywołań narzędzi */
+	toolCount?: number;
+	/** Skrócony podgląd wyniku (pierwsze 200 znaków) — do tabeli flow summary */
+	outputPreview?: string;
+	/** Pełny tekst outputu kroku (dla agentów ze schema: zawiera też sformatowany structured output) */
+	output?: string;
+	/** Surowy structured output (tylko dla agentów z outputSchema) — do programatycznego dostępu */
+	structuredOutput?: unknown;
+	/** Błąd jeśli wystąpił */
+	error?: string;
 }
 
 /** Konfiguracja retry dla withRetry */
@@ -129,17 +161,13 @@ export interface RetryContext {
 	lastError: OrchestratorAgentError | undefined;
 }
 
-/** Kontekst dostępny wewnątrz bloku runInWorktree */
-export interface WorktreeOrchestratorContext {
-	/** Odpal subagenta w worktree (cwd automatycznie ustawione na ścieżkę worktree) */
-	runAgent(config: OrchestratorRunAgentConfig): Promise<OrchestratorRunAgentResult>;
-	/** Ścieżka do katalogu worktree */
+/** Kontekst dostępny wewnątrz bloku runInWorktree — to samo co OrchestratorContext z wyjątkiem runInWorktree */
+export type WorktreeOrchestratorContext = Omit<OrchestratorContext, "runInWorktree"> & {
+	/** Ścieżka do katalogu worktree (to samo co cwd wewnątrz worktree) */
 	worktreePath: string;
 	/** Ścieżka do pliku .patch (przekazana jawnie przez użytkownika przy wywołaniu runInWorktree) */
 	patchPath: string;
-	/** Log do debugu */
-	log(message: string): void;
-}
+};
 
 export interface OrchestratorContext {
 	/** Odpal subagenta, czekaj na wynik. Domyślnie rzuca OrchestratorAgentError przy exitCode !== 0 (chyba że doNotThrowOnError: true). */
@@ -185,16 +213,19 @@ export interface OrchestratorContext {
 
 	/**
 	 * Wykonuje dowolny krok (deterministyczny, interaktywny, etc.) z etykietą.
-	 * Loguje start/koniec i mierzy czas wykonania.
+	 * Loguje start/koniec, mierzy czas wykonania i dodaje wpis do allSteps.
 	 */
 	runStep<T>(config: { label: string }, fn: () => Promise<T>): Promise<T>;
 
 	/**
 	 * Otwiera nowy tab zellij z interaktywną sesją pi.
-	 * Użytkownik pracuje w sesji, a gdy skończy wpisuje /orch-exit.
+	 * Użytkownik pracuje w sesji, a gdy skończy wpisuje /pi-orch-exit.
 	 * Po zamknięciu sesji zwraca zawartość zebranego pliku output.
 	 */
 	interactiveStep(config: InteractiveStepConfig): Promise<string>;
+
+	/** Wszystkie wykonane kroki (agentowe + deterministyczne + interaktywne) — tylko do odczytu */
+	readonly allSteps: readonly OrchestratorStepResult[];
 }
 
 // ── Implementacja ───────────────────────────────────────────────────────
@@ -220,12 +251,14 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 	const stepResultsDir = path.join(deps.chainDir, "step-results");
 
 	let stepIndex = 0;
+	const allSteps: OrchestratorStepResult[] = [];
 
-	const saveStepResult = (index: number, result: OrchestratorRunAgentResult) => {
+	const pushStep = (step: OrchestratorStepResult) => {
+		allSteps.push(step);
 		try {
 			fs.mkdirSync(stepResultsDir, { recursive: true });
-			const fp = path.join(stepResultsDir, `${index}.json`);
-			fs.writeFileSync(fp, JSON.stringify(result, null, 2), "utf-8");
+			const fp = path.join(stepResultsDir, `${step.index}.json`);
+			fs.writeFileSync(fp, JSON.stringify(step, null, 2), "utf-8");
 		} catch {
 			// best-effort
 		}
@@ -289,19 +322,6 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 		const error = singleResult?.error ?? (result.isError ? output : undefined);
 		const structuredOutput = singleResult?.structuredOutput;
 
-		// Zapisz wynik
-		saveStepResult(currentIndex, {
-			exitCode,
-			output,
-			structuredOutput,
-			error,
-			agent: config.agent,
-			usage: singleResult?.usage ? { input: singleResult.usage.input, output: singleResult.usage.output, cacheRead: singleResult.usage.cacheRead, cacheWrite: singleResult.usage.cacheWrite, cost: singleResult.usage.cost } : undefined,
-			durationMs: singleResult?.progressSummary?.durationMs,
-			model: singleResult?.model,
-			toolCount: singleResult?.progressSummary?.toolCount,
-		});
-
 		// Bogaty log z metrykami
 		const usage = singleResult?.usage;
 		const totalTokens = usage ? usage.input + usage.output : 0;
@@ -330,8 +350,28 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 			toolCount,
 		};
 
-		// Nadpisz wynik finalny (po ewentualnej ekstrakcji)
-		saveStepResult(currentIndex, orchResult);
+		let agentOutput = output; // pełny tekst z agenta
+		if (structuredOutput) {
+			agentOutput += "\n\n--- Structured Output ---\n" + JSON.stringify(structuredOutput, null, 2);
+		}
+
+		// Dodaj do wspólnego rejestru allSteps
+		pushStep({
+			type: "agent",
+			index: currentIndex,
+			label: label ?? config.agent,
+			durationMs: durationMs ?? 0,
+			exitCode,
+			agent: config.agent,
+			as: config.as,
+			usage: usage ? { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite, cost: usage.cost } : undefined,
+			model,
+			toolCount,
+			output: agentOutput,
+			outputPreview: agentOutput.slice(0, 200),
+			structuredOutput: structuredOutput ?? undefined,
+			error,
+		});
 
 		if (exitCode !== 0 && !doNotThrowOnError) {
 			throw new OrchestratorAgentError(
@@ -414,12 +454,13 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 			}
 
 			const wtCtx: WorktreeOrchestratorContext = {
+				...returnedCtx,
 				runAgent: async (config: OrchestratorRunAgentConfig) => {
 					return runAgent({ ...config, cwd: config.cwd ?? worktreeCwd });
 				},
+				runInWorktree: undefined as unknown as OrchestratorContext["runInWorktree"],
 				worktreePath: worktreeCwd,
 				patchPath: resolvedPatchPath,
-				log,
 			};
 
 			const userResult = await fn(wtCtx);
@@ -458,26 +499,49 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 	};
 
 	const runStep = async <T>(stepConfig: { label: string }, fn: () => Promise<T>): Promise<T> => {
+		const currentIndex = stepIndex++;
 		const startTime = Date.now();
-		log(`[runStep] Starting: ${stepConfig.label}`);
+		log(`[step ${currentIndex}] Starting: ${stepConfig.label}`);
 		try {
 			const result = await fn();
-			const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-			log(`[runStep] Done: ${stepConfig.label} (${duration}s)`);
+			const durationMs = Date.now() - startTime;
+			const duration = (durationMs / 1000).toFixed(1);
+			log(`[step ${currentIndex}] Done: ${stepConfig.label} (${duration}s)`);
+			const strResult = result == null ? "" : typeof result === "string" ? result : JSON.stringify(result);
+			pushStep({
+				type: "deterministic",
+				index: currentIndex,
+				label: stepConfig.label,
+				durationMs,
+				exitCode: 0,
+				output: strResult,
+				outputPreview: strResult.slice(0, 200),
+			});
 			return result;
 		} catch (err) {
-			const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-			log(`[runStep] Failed: ${stepConfig.label} (${duration}s): ${err instanceof Error ? err.message : String(err)}`);
+			const durationMs = Date.now() - startTime;
+			const duration = (durationMs / 1000).toFixed(1);
+			const errMsg = err instanceof Error ? err.message : String(err);
+			log(`[step ${currentIndex}] Failed: ${stepConfig.label} (${duration}s): ${errMsg}`);
+			pushStep({
+				type: "deterministic",
+				index: currentIndex,
+				label: stepConfig.label,
+				durationMs,
+				exitCode: 1,
+				error: errMsg,
+			});
 			throw err;
 		}
 	};
 
-	const interactiveStep = async (config: InteractiveStepConfig): Promise<string> => {
+	const interactiveStepInternal = async (config: InteractiveStepConfig, effectiveCwd?: string): Promise<string> => {
 		const outputFile = config.outputFile ?? "interactive-output.md";
 		const outputPath = path.resolve(deps.chainDir, outputFile);
 		const briefFileName = "interactive-brief.md";
 		const briefPath = path.resolve(deps.chainDir, briefFileName);
 		const label = config.label ?? "Interactive step";
+		const cwd = effectiveCwd ?? deps.cwd;
 
 		// 1. Utwórz plik brief z instrukcjami
 		const briefContent = [
@@ -490,7 +554,7 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 			"## Instructions",
 			"",
 			"1. Work through the task above in this pi session.",
-			"2. When you have gathered all necessary information, type `/orch-exit` to save and exit.",
+			"2. When you have gathered all necessary information, type `/pi-orch-exit` to save and exit.",
 			"3. The session will be saved automatically and the tab will close.",
 			"",
 		].join("\n");
@@ -507,7 +571,7 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 			`cat "${briefPath}"`,
 			`echo ""`,
 			`echo "─────────────────────────────────────────────"`,
-			`echo "Type /orch-exit when done to save and close."`,
+			`echo "Type /pi-orch-exit when done to save and close."`,
 			`echo "─────────────────────────────────────────────"`,
 			`echo ""`,
 			`exec pi`,
@@ -517,7 +581,7 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 			"zellij", "action", "new-tab",
 			"--close-on-exit",
 			"--name", tabName,
-			"--cwd", deps.cwd,
+			"--cwd", cwd,
 			"--", "bash", "-c", shellCmd,
 		];
 
@@ -575,7 +639,7 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 		if (!fs.existsSync(outputPath)) {
 			throw new Error(
 				`Interactive step "${label}" completed but no output file was created at ${outputPath}. ` +
-				"Make sure you typed /orch-exit in the pi session before closing the tab.",
+				"Make sure you typed /pi-orch-exit in the pi session before closing the tab.",
 			);
 		}
 
@@ -588,16 +652,44 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 	};
 
 	const interactiveStepWrapped = async (config: InteractiveStepConfig): Promise<string> => {
-		return runStep(
-			{ label: config.label ?? "Interactive step" },
-			() => interactiveStep(config),
-		);
+		const currentIndex = stepIndex++;
+		const label = config.label ?? "Interactive step";
+		const startTime = Date.now();
+		log(`[step ${currentIndex}] Interactive step starting: ${label}`);
+		try {
+			const result = await interactiveStepInternal(config);
+			const durationMs = Date.now() - startTime;
+			log(`[step ${currentIndex}] Interactive step done: ${label} (${(durationMs / 1000).toFixed(1)}s)`);
+			pushStep({
+				type: "interactive",
+				index: currentIndex,
+				label,
+				durationMs,
+				exitCode: 0,
+				output: result,
+				outputPreview: result.slice(0, 200),
+			});
+			return result;
+		} catch (err) {
+			const durationMs = Date.now() - startTime;
+			const errMsg = err instanceof Error ? err.message : String(err);
+			log(`[step ${currentIndex}] Interactive step failed: ${label} (${(durationMs / 1000).toFixed(1)}s): ${errMsg}`);
+			pushStep({
+				type: "interactive",
+				index: currentIndex,
+				label,
+				durationMs,
+				exitCode: 1,
+				error: errMsg,
+			});
+			throw err;
+		}
 	};
 
-	return {
+	const returnedCtx = {
 		runAgent,
 		withRetry,
-		runInWorktree,
+		runInWorktree: undefined as unknown as OrchestratorContext["runInWorktree"],
 		runStep,
 		interactiveStep: interactiveStepWrapped,
 		chainDir: deps.chainDir,
@@ -606,5 +698,14 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 		timeoutMs: deps.timeoutMs,
 		args: deps.args,
 		log,
+		get allSteps(): readonly OrchestratorStepResult[] {
+			return allSteps;
+		},
 	};
+
+	// Przypisz runInWorktree po tym jak returnedCtx już istnieje (potrzebuje referencji do siebie)
+	const runInWorktreeFinal = runInWorktree;
+	(returnedCtx as { runInWorktree: OrchestratorContext["runInWorktree"] }).runInWorktree = runInWorktreeFinal as OrchestratorContext["runInWorktree"];
+
+	return returnedCtx as OrchestratorContext;
 }

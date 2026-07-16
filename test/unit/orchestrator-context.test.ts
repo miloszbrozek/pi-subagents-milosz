@@ -471,7 +471,9 @@ describe("step results persistence", () => {
 		const saved = JSON.parse(fs.readFileSync(stepFile, "utf-8"));
 		assert.equal(saved.agent, "scout");
 		assert.equal(saved.exitCode, 0);
-		assert.ok(saved.output.includes("scan done"));
+		assert.equal(saved.type, "agent");
+		assert.ok(saved.outputPreview.includes("scan done"), `expected outputPreview to include 'scan done', got: ${saved.outputPreview}`);
+		assert.ok((saved.output as string).includes("scan done"), `expected output to include 'scan done', got: ${saved.output}`);
 	});
 
 	it("writes multiple step results with correct indices", async () => {

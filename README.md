@@ -1661,12 +1661,45 @@ export default {
 |-------|------|-------------|
 | `runAgent(config)` | `Promise<OrchestratorRunAgentResult>` | Run a subagent and wait for the result. Throws `OrchestratorAgentError` on failure unless `doNotThrowOnError: true`. |
 | `withRetry(config, fn)` | `Promise<T>` | Retry a block on `OrchestratorAgentError`, with configurable `maxAttempts`, `delayMs`, and `backoff` ("fixed" or "exponential"). |
-| `runInWorktree(patchPath, fn)` | `Promise<T & WorktreeBlockResult>` | Run agents inside a single shared git worktree, capture diff to `patchPath` |
+| `runInWorktree(patchPath, fn)` | `Promise<T & WorktreeBlockResult>` | Run agents inside a single shared git worktree, capture diff to `patchPath`. The callback receives a `WorktreeOrchestratorContext` (same as `OrchestratorContext` minus `runInWorktree`, plus `worktreePath` and `patchPath`). |
+| `runStep(config, fn)` | `Promise<T>` | Execute any deterministic (non-agent) step with a label. Logs start/end, measures duration, and records the step in `allSteps` for flow summary. `config: { label: string }`. |
+| `interactiveStep(config)` | `Promise<string>` | Open a zellij tab with an interactive pi session. The user works in the session, types `/pi-orch-exit` when done, and the output file content is returned. See `InteractiveStepConfig` below. |
 | `chainDir` | `string` | Shared directory for artifacts, contexts, and logs |
 | `runId` | `string` | Unique run identifier |
 | `cwd` | `string` | Working directory (where Pi was started) |
 | `timeoutMs` | `number` | Resolved timeout for this flow |
+| `args` | `string[]` | Additional arguments passed after the script path in `/pi-orch` |
 | `log(message)` | `void` | Append a line to `orchestrator.log` inside `chainDir` |
+| `allSteps` | `readonly OrchestratorStepResult[]` | All executed steps (agent + deterministic + interactive), in order. Populated automatically — no manual tracking needed. |
+
+### InteractiveStepConfig
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `prompt` | `string` | **required** | Instructions/questions shown to the user in the interactive session |
+| `label` | `string` | `"Interactive step"` | Human-readable label for logs and flow summary |
+| `outputFile` | `string` | `"interactive-output.md"` | Output file name inside `chainDir` where the session content is saved |
+| `zellijTabName` | `string` | `"Orch: Interactive"` | Zellij tab name (a short runId suffix is appended automatically) |
+| `timeoutMs` | `number` | none | Maximum wait time for the interactive session |
+
+Example:
+
+```ts
+const requirements = await ctx.interactiveStep({
+  prompt: "Describe the features to add. Type /pi-orch-exit when done.",
+  label: "Collecting requirements",
+  outputFile: "user-requirements.md",
+});
+```
+
+Example of `runStep`:
+
+```ts
+await ctx.runStep({ label: "Collecting metadata" }, async () => {
+  const gitInfo = execSync("git log -1 --oneline").toString();
+  fs.writeFileSync(path.join(ctx.chainDir, "meta.txt"), gitInfo);
+});
+```
 
 ### OrchestratorRunAgentConfig
 
@@ -1741,12 +1774,12 @@ const result = await ctx.runInWorktree(
 
 #### WorktreeOrchestratorContext
 
+Same as `OrchestratorContext` except `runInWorktree` (nesting worktrees is not supported), plus:
+
 | Field | Type | Description |
 |-------|------|-------------|
-| `runAgent(config)` | `Promise<OrchestratorRunAgentResult>` | Run a subagent inside the worktree |
-| `worktreePath` | `string` | Working directory inside the worktree |
+| `worktreePath` | `string` | Working directory inside the worktree (same as `cwd`) |
 | `patchPath` | `string` | Explicit patch path (same as passed to `runInWorktree`) |
-| `log(message)` | `void` | Append to orchestrator log |
 
 #### WorktreeBlockResult
 
