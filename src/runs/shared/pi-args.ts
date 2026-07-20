@@ -206,6 +206,8 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 		toolDiagnosticPath = path.join(tempDir, "tool-diagnostic.json");
 		env[REQUIRED_CHILD_TOOLS_ENV] = JSON.stringify(requiredChildTools);
 		env[CHILD_TOOL_DIAGNOSTIC_PATH_ENV] = toolDiagnosticPath;
+		// DEBUG: log what we set as required
+		console.error(`[pi-args] agent=${input.childAgentName ?? "?"} requiredChildTools=[${requiredChildTools.join(",")}]`);
 	}
 	env[SUBAGENT_CHILD_ENV] = "1";
 	env[SUBAGENT_FANOUT_CHILD_ENV] = fanoutAuthorized ? "1" : "0";
