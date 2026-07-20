@@ -358,6 +358,37 @@ await ctx.runAgent({
 });
 ```
 
+### Resume a previous agent session
+
+Use `sessionFile` to continue a conversation from a previous `runAgent()` call. The first run's result exposes a `sessionFile` field pointing to the `.jsonl` session file. Pass that path to a subsequent `runAgent()` call to resume the conversation with full prior context.
+
+```typescript
+// Step 1: teach the agent something
+const step1 = await ctx.runAgent({
+  agent: "delegate",
+  task: "Zapamiętaj: jabłko = 7, gruszka = 5.",
+  as: "remember",
+  label: "Remember values",
+});
+
+// Step 2: resume the same session and ask a follow-up
+const step2 = await ctx.runAgent({
+  agent: "delegate",
+  task: "Ile to gruszka + jabłko?",
+  as: "calculate",
+  label: "Resume & calculate",
+  sessionFile: step1.sessionFile,  // ← resumes step 1's conversation
+});
+// step2 has access to jabłko=7 and gruszka=5 from step 1
+```
+
+Key points:
+
+- `sessionFile` must point to a valid `.jsonl` session file. It is validated at runtime (must exist, be a regular `.jsonl` file).
+- When `sessionFile` is provided, it takes precedence over the agent's default context (`fork`/`fresh`). The agent continues from the given session.
+- Both foreground and async runs support `sessionFile` — in both cases the child `pi` process is launched with `--session <file>`.
+- Use this for multi-turn agent conversations within a flow, or to split a complex reasoning task across multiple `runAgent()` calls with accumulating context.
+
 ### Handle agent errors explicitly
 
 By default, `ctx.runAgent()` throws `OrchestratorAgentError` when the agent exits with a non-zero code. Use `doNotThrowOnError: true` when the flow should continue despite an agent failure.

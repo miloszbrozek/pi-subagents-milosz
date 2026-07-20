@@ -439,6 +439,35 @@ function updateRememberedForegroundChild(state: SubagentState, input: { runId: s
 	});
 }
 
+/**
+ * Resolves the session file for a single agent run.
+ * If params.sessionFile is explicitly provided, it is validated and returned.
+ * Otherwise falls back to sessionFileForTask (fork or fresh session).
+ */
+function resolveSessionFile(
+	explicitSessionFile: string | undefined,
+	agent: string,
+	index: number,
+	modelOverride: string | undefined,
+	sessionFileForTask: ForkSessionFileForTask,
+): string | undefined {
+	if (explicitSessionFile !== undefined) {
+		const resolved = path.resolve(explicitSessionFile);
+		if (path.extname(resolved) !== ".jsonl") {
+			throw new Error(`sessionFile must be a .jsonl file: ${explicitSessionFile}`);
+		}
+		if (!fs.existsSync(resolved)) {
+			throw new Error(`sessionFile does not exist: ${explicitSessionFile}`);
+		}
+		const stat = fs.statSync(resolved);
+		if (!stat.isFile() || stat.isSymbolicLink()) {
+			throw new Error(`sessionFile is not a regular file: ${explicitSessionFile}`);
+		}
+		return resolved;
+	}
+	return sessionFileForTask(agent, index, modelOverride);
+}
+
 function resolveForegroundResumeTarget(params: SubagentParamsLike, state: SubagentState): { runId: string; mode: "single" | "parallel" | "chain"; state: "complete"; agent: string; index: number; intercomTarget: string; cwd: string; sessionFile: string } | undefined {
 	const requested = (params.id ?? params.runId)?.trim();
 	if (!requested || !state.foregroundRuns?.size || !state.currentSessionId) return undefined;
@@ -2084,7 +2113,7 @@ function runAsyncPath(data: ExecutionContextData, deps: ExecutorDeps): AgentTool
 			artifactConfig,
 			shareEnabled,
 			sessionRoot,
-			sessionFile: sessionFileForTask(params.agent!, 0, modelOverride),
+			sessionFile: resolveSessionFile(params.sessionFile, params.agent!, 0, modelOverride, sessionFileForTask),
 			skills,
 			output: effectiveOutput,
 			outputMode: effectiveOutputMode,
@@ -3013,7 +3042,7 @@ async function runSinglePath(data: ExecutionContextData, deps: ExecutorDeps): Pr
 				artifactConfig,
 				shareEnabled,
 				sessionRoot,
-				sessionFile: sessionFileForTask(params.agent!, 0, modelOverride),
+				sessionFile: resolveSessionFile(params.sessionFile, params.agent!, 0, modelOverride, sessionFileForTask),
 				skills: skillOverride === false ? [] : skillOverride,
 				output: effectiveOutput,
 				outputMode: effectiveOutputMode,
@@ -3102,7 +3131,7 @@ async function runSinglePath(data: ExecutionContextData, deps: ExecutorDeps): Pr
 		intercomEvents: deps.pi.events,
 		runId,
 		sessionDir: sessionDirForIndex(0),
-		sessionFile: sessionFileForTask(params.agent!, 0, modelOverride),
+		sessionFile: resolveSessionFile(params.sessionFile, params.agent!, 0, modelOverride, sessionFileForTask),
 		extraExtensions: params.extraExtensions,
 		share: shareEnabled,
 		artifactsDir: artifactConfig.enabled ? artifactsDir : undefined,

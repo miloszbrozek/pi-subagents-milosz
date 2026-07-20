@@ -78,6 +78,8 @@ export interface OrchestratorRunAgentResult {
 	model?: string;
 	/** Liczba wywołań narzędzi */
 	toolCount?: number;
+	/** Ścieżka do pliku sesji użytego przez agenta (przydatne do wznowienia sesji przez sessionFile) */
+	sessionFile?: string;
 }
 
 /** Rezultat bloku worktree zwracany przez runInWorktree */
@@ -136,6 +138,8 @@ export interface OrchestratorStepResult {
 	output?: string;
 	/** Surowy structured output (tylko dla agentów z outputSchema) — do programatycznego dostępu */
 	structuredOutput?: unknown;
+	/** Ścieżka do pliku sesji użytego przez agenta */
+	sessionFile?: string;
 	/** Błąd jeśli wystąpił */
 	error?: string;
 }
@@ -332,6 +336,8 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 			(toolCount ? ` tools=${toolCount}` : "") +
 			(error ? ` error=${error.slice(0, 100)}` : ""));
 
+		const sessionFile = singleResult?.sessionFile;
+
 		const orchResult: OrchestratorRunAgentResult = {
 			exitCode,
 			output,
@@ -342,6 +348,7 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 			durationMs,
 			model,
 			toolCount,
+			sessionFile,
 		};
 
 		let agentOutput = output; // pełny tekst z agenta
@@ -364,6 +371,7 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 			output: agentOutput,
 			outputPreview: agentOutput.slice(0, 200),
 			structuredOutput: structuredOutput ?? undefined,
+			sessionFile,
 			error,
 		});
 
