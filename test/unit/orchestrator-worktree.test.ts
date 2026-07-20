@@ -102,7 +102,6 @@ describe("orchestrator worktree", () => {
 			chainDir,
 			runId: "test-run",
 			cwd: repoDir,
-			timeoutMs: 30000,
 		};
 
 		const orchCtx = createOrchestratorContext(deps);
@@ -140,7 +139,6 @@ describe("orchestrator worktree", () => {
 			chainDir,
 			runId: "test-cleanup",
 			cwd: repoDir,
-			timeoutMs: 30000,
 		};
 
 		const orchCtx = createOrchestratorContext(deps);
@@ -185,7 +183,6 @@ describe("orchestrator worktree", () => {
 			chainDir,
 			runId: "test-dirty",
 			cwd: repoDir,
-			timeoutMs: 30000,
 		};
 
 		const orchCtx = createOrchestratorContext(deps);
@@ -216,7 +213,6 @@ describe("orchestrator worktree", () => {
 			chainDir,
 			runId: "test-nonrepo",
 			cwd: nonRepoDir,
-			timeoutMs: 30000,
 		};
 
 		const orchCtx = createOrchestratorContext(deps);
@@ -261,7 +257,6 @@ describe("orchestrator worktree", () => {
 			chainDir,
 			runId: "test-empty",
 			cwd: repoDir,
-			timeoutMs: 30000,
 		};
 
 		const orchCtx = createOrchestratorContext(deps);
@@ -294,7 +289,6 @@ describe("orchestrator worktree", () => {
 			chainDir,
 			runId: "test-relpath",
 			cwd: repoDir,
-			timeoutMs: 30000,
 		};
 
 		const orchCtx = createOrchestratorContext(deps);

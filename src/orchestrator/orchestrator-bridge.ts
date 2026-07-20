@@ -269,14 +269,12 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 				throw new Error(`Script ${resolvedPath} did not export a valid flow function.`);
 			}
 
-			const timeoutMs = script.settings?.timeout ?? 300_000;
 			orchestratorCtx = createOrchestratorContext({
 				execute: options.execute,
 				ctx,
 				chainDir,
 				runId: requestId,
 				cwd: ctx.cwd,
-				timeoutMs,
 				args: args ?? [],
 			});
 
@@ -365,14 +363,7 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 
 			orchestratorCtx.log("Script loaded, executing...");
 
-			// Odpal flow z timeoutem
-			const timeoutPromise = new Promise<never>((_, reject) =>
-				setTimeout(() => reject(new Error(`Orchestrator timed out after ${timeoutMs / 1000}s`)), timeoutMs),
-			);
-			const scriptResult = await Promise.race([
-				script.flow(orchestratorCtx),
-				timeoutPromise,
-			]);
+			const scriptResult = await script.flow(orchestratorCtx);
 
 			const flowEndTime = new Date().toISOString();
 			const allSteps = [...orchestratorCtx.allSteps];

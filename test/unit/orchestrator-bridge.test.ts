@@ -351,22 +351,6 @@ describe("orchestrator bridge", () => {
 			assert.match(summary, /Success/);
 		});
 
-		it("handles orchestrator settings timeout", async () => {
-			const scriptPath = writeOrchScript(tempDir, "timeout-orch.ts", `
-				export default {
-					settings: { timeout: 60000 },
-					async flow(ctx) {
-						return { output: "timeout is " + ctx.timeoutMs };
-					}
-				};
-			`);
-
-			const mockExec = createMockExecute();
-			const { response } = await sendOrchRequest(scriptPath, mockExec);
-
-			assert.ok(!response.error);
-			assert.match(response.output as string, /60000/);
-		});
 	});
 
 	// ── Error paths ────────────────────────────────────────────────────
@@ -466,7 +450,6 @@ describe("orchestrator bridge", () => {
 		it("handles script that exports settings but crashes in flow", async () => {
 			const scriptPath = writeOrchScript(tempDir, "settings-crash-orch.ts", `
 				export default {
-					settings: { timeout: 10000 },
 					async flow(ctx) {
 						ctx.log("about to crash");
 						throw new Error("settings crash");

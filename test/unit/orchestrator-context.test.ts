@@ -105,7 +105,6 @@ function createContext(
 		chainDir: overrides.chainDir ?? "/tmp/test-chain",
 		runId: overrides.runId ?? "test-run",
 		cwd: overrides.cwd ?? "/tmp/test",
-		timeoutMs: overrides.timeoutMs ?? 30000,
 	};
 	return createOrchestratorContext(deps);
 }
@@ -410,19 +409,17 @@ describe("orchestrator context", () => {
 	// ── Context properties ─────────────────────────────────────────────
 
 	describe("context properties", () => {
-		it("exposes chainDir, runId, cwd, timeoutMs", () => {
+		it("exposes chainDir, runId, cwd", () => {
 			const mockExec = createMockExecute();
 			const ctx = createContext(mockExec, {
 				chainDir: "/custom/chain/dir",
 				runId: "custom-run-id",
 				cwd: "/custom/cwd",
-				timeoutMs: 60000,
 			});
 
 			assert.equal(ctx.chainDir, "/custom/chain/dir");
 			assert.equal(ctx.runId, "custom-run-id");
 			assert.equal(ctx.cwd, "/custom/cwd");
-			assert.equal(ctx.timeoutMs, 60000);
 		});
 
 		it("log writes to orchestrator.log", async () => {

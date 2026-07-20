@@ -27,8 +27,6 @@ import {
 
 /** Ustawienia flowu — skrypt może je wyeksportować jako settings */
 export interface OrchestratorSettings {
-	/** Timeout całego flow w ms (domyślnie 300_000 = 5 min) */
-	timeout?: number;
 }
 
 /** Kształt eksportu skryptu orchestratora */
@@ -108,8 +106,6 @@ export interface InteractiveStepConfig {
 	outputFile?: string;
 	/** Nazwa nowego taba zellij (domyślnie: "Orch: Interactive") */
 	zellijTabName?: string;
-	/** Maksymalny czas oczekiwania w ms (domyślnie: brak) */
-	timeoutMs?: number;
 }
 
 /** Pojedynczy krok w flow (agentowy, deterministyczny lub interaktywny) */
@@ -205,8 +201,6 @@ export interface OrchestratorContext {
 	runId: string;
 	/** Working directory */
 	cwd: string;
-	/** Timeout całego flow w ms */
-	timeoutMs: number;
 	/** Dodatkowe argumenty przekazane z /pi-orch (po nazwie/ścieżce skryptu) */
 	args: string[];
 	/** Log do debugu */
@@ -243,7 +237,6 @@ export interface OrchestratorContextDeps {
 	chainDir: string;
 	runId: string;
 	cwd: string;
-	timeoutMs: number;
 	args: string[];
 }
 
@@ -593,7 +586,6 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 		try {
 			tabId = execFileSync(zellijCmd[0]!, zellijCmd.slice(1), {
 				encoding: "utf-8",
-				timeout: config.timeoutMs,
 				stdio: ["pipe", "pipe", "pipe"],
 			}).trim();
 			log(`[interactive] Tab opened: id=${tabId}`);
@@ -615,10 +607,6 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 		const pollIntervalMs = 500;
 		const pollStart = Date.now();
 		while (true) {
-			if (config.timeoutMs && (Date.now() - pollStart) > config.timeoutMs) {
-				throw new Error(`Interactive step timed out after ${config.timeoutMs / 1000}s`);
-			}
-
 			await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
 
 			try {
@@ -697,7 +685,6 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 		chainDir: deps.chainDir,
 		runId: deps.runId,
 		cwd: deps.cwd,
-		timeoutMs: deps.timeoutMs,
 		args: deps.args,
 		log,
 		get allSteps(): readonly OrchestratorStepResult[] {

@@ -1653,7 +1653,6 @@ export default {
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `flow` | `(ctx: OrchestratorContext) => Promise<{ output, results? }>` | yes | Main orchestrator function |
-| `settings.timeout` | `number` | no | Flow timeout in ms (default 300 000 = 5 min) |
 
 ### OrchestratorContext
 
@@ -1667,7 +1666,6 @@ export default {
 | `chainDir` | `string` | Shared directory for artifacts, contexts, and logs |
 | `runId` | `string` | Unique run identifier |
 | `cwd` | `string` | Working directory (where Pi was started) |
-| `timeoutMs` | `number` | Resolved timeout for this flow |
 | `args` | `string[]` | Additional arguments passed after the script path in `/pi-orch` |
 | `log(message)` | `void` | Append a line to `orchestrator.log` inside `chainDir` |
 | `allSteps` | `readonly OrchestratorStepResult[]` | All executed steps (agent + deterministic + interactive), in order. Populated automatically — no manual tracking needed. |
@@ -1680,7 +1678,6 @@ export default {
 | `label` | `string` | `"Interactive step"` | Human-readable label for logs and flow summary |
 | `outputFile` | `string` | `"interactive-output.md"` | Output file name inside `chainDir` where the session content is saved |
 | `zellijTabName` | `string` | `"Orch: Interactive"` | Zellij tab name (a short runId suffix is appended automatically) |
-| `timeoutMs` | `number` | none | Maximum wait time for the interactive session |
 
 Example:
 
@@ -1804,10 +1801,6 @@ export default async function (ctx: OrchestratorContext) { … }
 
 The bridge wraps them as `{ flow: fn }` automatically. New scripts should prefer the object form.
 
-### Timeout
-
-The flow timeout is set in `settings.timeout` (default 300 000 ms). The bridge wraps `flow(ctx)` in `Promise.race` with a timeout promise. On timeout, an error response is sent to the slash command handler and the run terminates. The slash-command handler has no separate timeout — it relies on the bridge always emitting a response via `try/catch`.
-
 ## Runtime files
 
 The main runtime files are:
@@ -1828,6 +1821,6 @@ The main runtime files are:
 | `src/extension/schemas.ts` / `src/shared/types.ts` | Tool schemas, shared types, and event constants. |
 | `test/unit/` / `test/integration/` / `test/e2e/` | Unit, loader-based integration, and real-session E2E tests. |
 | `test/unit/` / `test/integration/` | Unit and loader-based integration tests. |
-| `src/orchestrator/orchestrator-bridge.ts` | `/pi-orch` bridge handler — loads TypeScript scripts via jiti, creates `OrchestratorContext`, applies timeout. |
+| `src/orchestrator/orchestrator-bridge.ts` | `/pi-orch` bridge handler — loads TypeScript scripts via jiti, creates `OrchestratorContext`. |
 | `src/orchestrator/orchestrator-context.ts` | `OrchestratorContext`, `OrchestratorScript`, `OrchestratorSettings` interfaces and implementation. |
 | `src/orchestrator/orchestrator-session.ts` | Session snapshot persistence + synthetic assistant injection for fork support. |
