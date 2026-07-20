@@ -226,6 +226,60 @@ Notice the pattern:
 - **Deterministic code** validates the output (length, characters, format), checks preconditions (clean repo, branch not taken, path available), and performs the actual worktree creation.
 - The agent's output is never trusted blindly — it goes through `validateBranchName()` before being used.
 
+### Use `outputSchema` for structured data from agents
+
+When an agent needs to return structured data that deterministic code will consume, use `outputSchema` with `ctx.runAgent()`. The agent produces a typed result accessible via `result.structuredOutput`, removing the need for manual parsing or regex extraction. This is the cleanest bridge between agent judgment and deterministic code.
+
+Use [TypeBox](https://github.com/sinclairzx81/typebox) schemas (imported from the `typebox` package) or a path to a JSON Schema file. The schema is passed to the agent's `structured_output` tool, so the agent returns properly shaped JSON.
+
+```typescript
+import { Type } from "typebox";
+
+// Agent handles the fuzzy part — analyzing the codebase
+const scan = await ctx.runAgent({
+  agent: "scout",
+  task: `Analyze the project and return a structured summary:
+- How many source files?
+- Primary language?
+- Does it have tests?`,
+  as: "scan",
+  label: "Project scan",
+  output: "scan-results.md",
+  outputSchema: Type.Object({
+    fileCount: Type.Number(),
+    primaryLanguage: Type.String(),
+    hasTests: Type.Boolean(),
+  }) as unknown as Record<string, unknown>,
+});
+
+// Deterministic code consumes the typed result directly — no parsing needed
+const { fileCount, primaryLanguage, hasTests } = scan.structuredOutput as {
+  fileCount: number;
+  primaryLanguage: string;
+  hasTests: boolean;
+};
+
+ctx.log(`Found ${fileCount} ${primaryLanguage} files, tests: ${hasTests ? "yes" : "no"}`);
+
+// Use the structured data for deterministic branching
+if (!hasTests) {
+  ctx.log("No tests found — adding a test-generation step");
+  // ...
+}
+
+if (fileCount > 100) {
+  ctx.log("Large project detected — running oracle for risk assessment");
+  // ...
+}
+```
+
+Key points:
+
+- The agent still writes its full prose output to the `output` file (useful for debugging and audit), while `structuredOutput` carries the typed data.
+- Deterministic code branches on `structuredOutput` fields instead of probing `result.output` with `.includes()` or regex.
+- If the agent fails to produce valid structured output, `runAgent()` throws — the validation is automatic, so you never work with malformed data downstream.
+- TypeBox schemas are preferred for inline use; for complex or shared schemas, pass a path to a `.json` schema file instead.
+
 ### Always set `label` and `as`
 
 - `label` — human-readable name shown in logs and flow summary tables.
