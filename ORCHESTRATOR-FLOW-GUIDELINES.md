@@ -52,7 +52,7 @@ async function runScout(ctx: OrchestratorContext, prompt: string): Promise<Orche
 }
 
 export default {
-  settings: { timeout: 300_000 },
+  settings: { },
   flow: async (ctx: OrchestratorContext) => {
     const prompt = parseArgs(ctx.args);
     const projectRoot = await resolveProjectRoot(ctx);
@@ -83,6 +83,148 @@ These are conventions extracted from existing flows. They are not mandatory but 
 | `ctx.interactiveStep()` | Collecting structured input from the user in a separate tab |
 | `ctx.withRetry()` | Wrapping any agent call that may fail transiently |
 | `ctx.runInWorktree()` | Isolating file mutations from the main working tree |
+
+### Prefer deterministic code over agents
+
+Every operation in a flow should use the cheapest, fastest, and most reliable primitive that can get the job done. Follow this decision hierarchy:
+
+1. **If the operation can be done deterministically and the result can be verified deterministically → use `ctx.runStep()` with plain TypeScript code.** This includes git operations, file I/O, input validation, string manipulation, type-checking, and any computation with a known correct answer.
+
+2. **If the operation requires judgment, reasoning, or creative generation → delegate to an agent via `ctx.runAgent()`.** Use this for tasks like code analysis, planning, code generation, review, or naming things based on human context.
+
+3. **When an agent produces a result, verify it deterministically whenever possible.** The agent handles the fuzzy part; your code checks the output for structural correctness, constraints, and safety before proceeding.
+
+| Operation | Primitive | Why |
+|-----------|-----------|-----|
+| Check if the git repo is clean | `ctx.runStep()` | Deterministic: `git status --porcelain` has a clear yes/no answer |
+| Validate a branch name (length, characters, format) | `ctx.runStep()` | Deterministic: regex and length checks are exact |
+| Check if a branch name already exists | `ctx.runStep()` | Deterministic: `git branch --list` tells you exactly |
+| Check if a worktree path is available | `ctx.runStep()` | Deterministic: `fs.existsSync()` or `git worktree list` |
+| Create a git worktree | `ctx.runStep()` | Deterministic: `git worktree add` either succeeds or fails |
+| Come up with a branch name from a feature description | `ctx.runAgent()` | Creative: requires understanding the feature and choosing a concise, meaningful name |
+| Analyze a codebase to find relevant files | `ctx.runAgent()` | Requires judgment: understanding what is relevant to the task |
+| Generate an implementation plan | `ctx.runAgent()` | Requires reasoning: synthesizing context into a coherent plan |
+| Review code for correctness | `ctx.runAgent()` | Requires judgment: spotting bugs, logic errors, edge cases |
+
+**Example: creating a worktree for a new feature**
+
+The flow splits the work between agent and deterministic code — the agent handles the creative naming, and the code validates everything else:
+
+```typescript
+import { execSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+// ── Deterministic: validate branch name ─────────────────────────────────
+
+const VALID_BRANCH_RE = /^[a-z0-9]([a-z0-9._\/-]*[a-z0-9])?$/;
+const MAX_BRANCH_LENGTH = 244;
+
+function validateBranchName(name: string): string {
+  const trimmed = name.trim().toLowerCase().replace(/\s+/g, "-");
+  if (trimmed.length === 0) {
+    throw new Error("Branch name must not be empty");
+  }
+  if (trimmed.length > MAX_BRANCH_LENGTH) {
+    throw new Error(
+      `Branch name too long (${trimmed.length} chars, max ${MAX_BRANCH_LENGTH})`,
+    );
+  }
+  if (!VALID_BRANCH_RE.test(trimmed)) {
+    throw new Error(
+      `Branch name "${trimmed}" contains invalid characters. ` +
+      `Allowed: lowercase letters, digits, . _ - / (must start and end with alphanumeric)`,
+    );
+  }
+  return trimmed;
+}
+
+function checkRepoClean(cwd: string): void {
+  const status = execSync("git status --porcelain", { cwd, encoding: "utf-8" });
+  if (status.trim() !== "") {
+    throw new Error(`Repository is not clean:\n${status.slice(0, 500)}`);
+  }
+}
+
+function branchExists(cwd: string, name: string): boolean {
+  try {
+    execSync(`git rev-parse --verify "refs/heads/${name}"`, {
+      cwd, encoding: "utf-8", stdio: "pipe",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function worktreePathAvailable(wtPath: string): boolean {
+  return !fs.existsSync(wtPath);
+}
+
+// ── Agent: generate branch name from feature description ────────────────
+
+async function generateBranchName(
+  ctx: OrchestratorContext,
+  featureDescription: string,
+): Promise<string> {
+  const result = await ctx.runAgent({
+    agent: "delegate",
+    task: [
+      `Generate a short, descriptive git branch name for this feature:`,
+      ``,
+      `"${featureDescription}"`,
+      ``,
+      `Rules:`,
+      `- Use lowercase letters, digits, hyphens, and forward slashes only`,
+      `- Start with a category prefix (feat/, fix/, refactor/, chore/)`,
+      `- Keep it under 50 characters`,
+      `- Return ONLY the branch name, nothing else — no markdown, no explanation`,
+    ].join("\n"),
+    as: "branch-name",
+    label: "Generate branch name",
+  });
+
+  // ── Deterministic validation of agent output ──────────────────────────
+  const rawName = result.output.trim();
+  const validated = validateBranchName(rawName);
+  ctx.log(`Agent proposed: "${rawName}" → validated: "${validated}"`);
+  return validated;
+}
+
+// ── Orchestrated step ───────────────────────────────────────────────────
+
+async function createFeatureWorktree(
+  ctx: OrchestratorContext,
+  featureDescription: string,
+): Promise<{ branchName: string; worktreePath: string }> {
+  checkRepoClean(ctx.cwd);
+
+  const branchName = await generateBranchName(ctx, featureDescription);
+
+  if (branchExists(ctx.cwd, branchName)) {
+    throw new Error(`Branch "${branchName}" already exists`);
+  }
+
+  const worktreePath = path.join(ctx.chainDir, "worktrees", branchName);
+  if (!worktreePathAvailable(worktreePath)) {
+    throw new Error(`Worktree path already exists: ${worktreePath}`);
+  }
+
+  await ctx.runStep({ label: "Create worktree" }, async () => {
+    execSync(`git worktree add "${worktreePath}" -b "${branchName}"`, {
+      cwd: ctx.cwd, encoding: "utf-8",
+    });
+  });
+
+  ctx.log(`Worktree created: ${worktreePath} (branch: ${branchName})`);
+  return { branchName, worktreePath };
+}
+```
+
+Notice the pattern:
+- **Agent** generates the branch name (the creative part).
+- **Deterministic code** validates the output (length, characters, format), checks preconditions (clean repo, branch not taken, path available), and performs the actual worktree creation.
+- The agent's output is never trusted blindly — it goes through `validateBranchName()` before being used.
 
 ### Always set `label` and `as`
 
@@ -115,18 +257,9 @@ This gives you type-checking on the entire export shape — settings, flow signa
 
 ```typescript
 export default {
-  settings: { timeout: 300_000 },
   flow: async (ctx: OrchestratorContext) => { ... },
 } satisfies OrchestratorScript;
 ```
-
-### Set a reasonable `timeout`
-
-Always define `settings.timeout`. The default is 5 minutes. Choose a value appropriate for your flow:
-
-- Lightweight flows (scout only): `60_000` – `120_000`
-- Medium flows (scout + planner + reviewer): `180_000` – `300_000`
-- Heavy flows (multiple workers, interactive steps): `600_000`+
 
 ### Pass data between steps via files
 
@@ -362,7 +495,6 @@ function buildSummary(
 
 export default {
   settings: {
-    timeout: 300_000,
   },
 
   flow: async (ctx: OrchestratorContext) => {
