@@ -78,10 +78,7 @@ function refreshChildToolDiagnostic(pi: ExtensionAPI): ChildToolDiagnostic | und
 		throw new Error(`Invalid ${REQUIRED_CHILD_TOOLS_ENV} payload.`);
 	}
 	const available = pi.getAllTools().map((tool) => tool.name);
-	// DEBUG: log required vs available for diagnostics
-	const agent = process.env[SUBAGENT_CHILD_AGENT_ENV]?.trim();
-	console.error(`[tool-diag] agent=${agent} required=[${required.join(",")}] available=[${available.join(",")}]`);
-	return writeChildToolDiagnostic(filePath, required, available, agent);
+	return writeChildToolDiagnostic(filePath, required, available, process.env[SUBAGENT_CHILD_AGENT_ENV]?.trim());
 }
 
 function findSectionEnd(prompt: string, startIndex: number, nextHeaders: string[]): number {
