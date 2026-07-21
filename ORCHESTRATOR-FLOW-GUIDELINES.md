@@ -438,21 +438,19 @@ fs.writeFileSync(filePath, content, "utf-8");
 
 ### Return a readable summary
 
-The `flow()` function must return `{ output: string }`. Format this as a Markdown summary with key results, file paths, and any decisions made. **Do NOT include per-step duration/status tables** — the bridge's `generateFlowSummary()` already produces a detailed table with exit codes, durations, tokens, cost, and model for every step. Focus your summary on business-level results that the automatic table does not capture: decisions, artifact paths, key findings, and next steps.
+The `flow()` function must return `{ output: string }`. Format this as a Markdown summary with key results, file paths, and any decisions made. **Do NOT include any per-step metrics** — the bridge's `generateFlowSummary()` already produces a detailed table with exit codes, durations, tokens, cost, and model for every step. This means no inline durations (`result.durationMs`), no exit-code emojis, and no manually-built step tables. Focus your summary on business-level results that the automatic table does not capture: decisions, artifact paths, key findings, and next steps.
 
 ```typescript
-// BAD — duplicates the bridge's automatic flow summary table
+// BAD — duplicates bridge metrics (durations, exit codes, step tables)
 return {
   output: [
     "## Flow — completed",
-    "| Step | Description | Duration | Status |",
-    "|------|-------------|----------|--------|",
-    `| Scout | Scanned the project | 2.3s | ✅ |`,
-    `| Plan  | Created a plan     | 1.5s | ✅ |`,
+    `✅ Scout (${(scoutResult.durationMs ?? 0) / 1000).toFixed(1)}s)`,
+    `✅ Plan  (${(planResult.durationMs ?? 0) / 1000).toFixed(1)}s)`,
   ].join("\n"),
 };
 
-// GOOD — business-level summary only
+// GOOD — business-level summary only, no per-step metrics
 return {
   output: [
     "## Flow — completed",
