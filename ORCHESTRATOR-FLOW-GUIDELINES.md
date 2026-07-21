@@ -235,6 +235,12 @@ Use [TypeBox](https://github.com/sinclairzx81/typebox) schemas (imported from th
 ```typescript
 import { Type } from "typebox";
 
+const ScanSchema = Type.Object({
+  fileCount: Type.Number(),
+  primaryLanguage: Type.String(),
+  hasTests: Type.Boolean(),
+});
+
 // Agent handles the fuzzy part — analyzing the codebase
 const scan = await ctx.runAgent({
   agent: "scout",
@@ -245,19 +251,11 @@ const scan = await ctx.runAgent({
   as: "scan",
   label: "Project scan",
   output: "scan-results.md",
-  outputSchema: Type.Object({
-    fileCount: Type.Number(),
-    primaryLanguage: Type.String(),
-    hasTests: Type.Boolean(),
-  }) as unknown as Record<string, unknown>,
+  outputSchema: ScanSchema,
 });
 
 // Deterministic code consumes the typed result directly — no parsing needed
-const { fileCount, primaryLanguage, hasTests } = scan.structuredOutput as {
-  fileCount: number;
-  primaryLanguage: string;
-  hasTests: boolean;
-};
+const { fileCount, primaryLanguage, hasTests } = scan.structuredOutput!;
 
 ctx.log(`Found ${fileCount} ${primaryLanguage} files, tests: ${hasTests ? "yes" : "no"}`);
 

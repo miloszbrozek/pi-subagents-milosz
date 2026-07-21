@@ -8,6 +8,7 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { TSchema, Static } from "typebox";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -47,7 +48,7 @@ export class OrchestratorAgentError extends Error {
 	}
 }
 
-export interface OrchestratorRunAgentConfig extends SubagentParamsLike {
+export interface OrchestratorRunAgentConfig<S extends TSchema = TSchema> extends Omit<SubagentParamsLike, 'outputSchema'> {
 	/** Nazwa agenta (zawężone do required) */
 	agent: string;
 	/** Zadanie (zawężone do required) */
@@ -60,14 +61,14 @@ export interface OrchestratorRunAgentConfig extends SubagentParamsLike {
 	reads?: string[];
 	/** Jeśli true, nie rzuca wyjątku przy exitCode !== 0 — zwraca wynik normalnie */
 	doNotThrowOnError?: boolean;
-	/** JSON Schema for structured output validation */
-	outputSchema?: JsonSchemaObject;
+	/** TypeBox schema lub JSON Schema dla structured output validation */
+	outputSchema?: S;
 }
 
-export interface OrchestratorRunAgentResult {
+export interface OrchestratorRunAgentResult<S extends TSchema = TSchema> {
 	exitCode: number;
 	output: string;
-	structuredOutput?: unknown;
+	structuredOutput?: Static<S>;
 	error?: string;
 	agent: string;
 	/** Token usage z wykonania agenta */
@@ -172,7 +173,7 @@ export type WorktreeOrchestratorContext = Omit<OrchestratorContext, "runInWorktr
 
 export interface OrchestratorContext {
 	/** Odpal subagenta, czekaj na wynik. Domyślnie rzuca OrchestratorAgentError przy exitCode !== 0 (chyba że doNotThrowOnError: true). */
-	runAgent(config: OrchestratorRunAgentConfig): Promise<OrchestratorRunAgentResult>;
+	runAgent<S extends TSchema = TSchema>(config: OrchestratorRunAgentConfig<S>): Promise<OrchestratorRunAgentResult<S>>;
 
 	/**
 	 * Wykonuje blok z automatycznym retry.
@@ -272,7 +273,7 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 		}
 	};
 
-	const runAgent = async (config: OrchestratorRunAgentConfig): Promise<OrchestratorRunAgentResult> => {
+	const runAgent = async <S extends TSchema = TSchema>(config: OrchestratorRunAgentConfig<S>): Promise<OrchestratorRunAgentResult<S>> => {
 		const currentIndex = stepIndex++;
 		const requestId = `${deps.runId}-step-${currentIndex}`;
 		const effectiveCwd = config.cwd ?? deps.cwd;
@@ -299,6 +300,7 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 
 		const params: SubagentParamsLike = {
 			...agentParams,
+			outputSchema: agentParams.outputSchema as JsonSchemaObject | undefined,
 			intercomBridgeMode: agentParams.intercomBridgeMode ?? "off",
 			task: taskWithInstructions,
 			...(effectiveCwd !== deps.cwd ? { cwd: effectiveCwd } : {}),
