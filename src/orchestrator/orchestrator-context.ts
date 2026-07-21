@@ -299,6 +299,7 @@ export function createOrchestratorContext(deps: OrchestratorContextDeps): Orches
 
 		const params: SubagentParamsLike = {
 			...agentParams,
+			intercomBridgeMode: agentParams.intercomBridgeMode ?? "off",
 			task: taskWithInstructions,
 			...(effectiveCwd !== deps.cwd ? { cwd: effectiveCwd } : {}),
 		};

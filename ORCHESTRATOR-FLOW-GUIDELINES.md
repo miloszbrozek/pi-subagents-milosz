@@ -384,6 +384,7 @@ const step2 = await ctx.runAgent({
 
 Key points:
 
+- The orchestrator **disables the intercom bridge by default** (`intercomBridgeMode: "off"`). Agents launched via `ctx.runAgent()` do not get `intercom`/`contact_supervisor` injected into their tools. If a flow needs intercom (e.g., for `contact_supervisor`), pass `intercomBridgeMode: "always"` or `"fork-only"` explicitly.
 - `sessionFile` must point to a valid `.jsonl` session file. It is validated at runtime (must exist, be a regular `.jsonl` file).
 - When `sessionFile` is provided, it takes precedence over the agent's default context (`fork`/`fresh`). The agent continues from the given session.
 - Both foreground and async runs support `sessionFile` — in both cases the child `pi` process is launched with `--session <file>`.

@@ -182,6 +182,8 @@ export interface SubagentParamsLike {
 	extraExtensions?: string[];
 	/** JSON Schema for structured output validation */
 	outputSchema?: JsonSchemaObject;
+	/** Override the intercom bridge mode for this run. Orchestrator defaults to "off". */
+	intercomBridgeMode?: "off" | "always" | "fork-only";
 }
 
 interface ExecutorDeps {
@@ -3583,8 +3585,11 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 		const contextPolicy = resolveAgentDefaultContextPolicy(effectiveParams, discoveredAgents);
 		effectiveParams = contextPolicy.params;
 		const sessionName = resolveIntercomSessionTarget(deps.pi.getSessionName(), ctx.sessionManager.getSessionId());
+		const effectiveIntercomBridgeConfig = effectiveParams.intercomBridgeMode !== undefined
+			? { ...deps.config.intercomBridge, mode: effectiveParams.intercomBridgeMode }
+			: deps.config.intercomBridge;
 		const intercomBridge = resolveIntercomBridge({
-			config: deps.config.intercomBridge,
+			config: effectiveIntercomBridgeConfig,
 			context: effectiveParams.context,
 			orchestratorTarget: sessionName,
 		});
