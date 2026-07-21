@@ -1596,32 +1596,48 @@ export function registerSlashCommands(
 
 			const onUpdate = (data: unknown) => {
 				if (!data || typeof data !== "object") return;
-				const update = data as { requestId?: string; step?: number; agent?: string; status?: string };
+				const update = data as { requestId?: string; step?: number; agent?: string; status?: string; exitCode?: number; output?: string; error?: string; label?: string; durationMs?: number; usage?: { input: number; output: number; cost: number }; model?: string };
 				if (update.requestId !== requestId) return;
 				step = update.step ?? step;
 				agent = update.agent ?? agent;
 				ctx.ui.setStatus("orch", `[step ${step + 1}] ${agent}: ${update.status ?? "running"}`);
+
+				// Stream progressive step output to the TUI as each step completes
+				if (update.status !== "running" && (update.output || update.error)) {
+					const icon = update.exitCode === 0 ? "✅" : "❌";
+					const label = update.label ?? update.agent;
+					const dur = update.durationMs ? ` _(${(update.durationMs / 1000).toFixed(1)}s)_` : "";
+					const stepLines = [`### ${icon} ${label} (step ${(update.step ?? 0) + 1})${dur}`];
+					if (update.error) {
+						stepLines.push("");
+						stepLines.push(`❌ ${update.error}`);
+					} else if (update.output) {
+						stepLines.push("");
+						const preview = update.output.slice(0, 2000);
+						stepLines.push("```");
+						stepLines.push(preview);
+						if (update.output.length > 2000) stepLines.push("...[truncated]");
+						stepLines.push("```");
+					}
+					pi.sendMessage({
+						customType: "orchestrator-step",
+						content: stepLines.join("\n"),
+						display: true,
+					});
+				}
 			};
 
 			const unsubUpdate = pi.events.on(ORCHESTRATOR_UPDATE_EVENT, onUpdate);
 
 			try {
-				interface OrchestratorResultItem {
-					agent: string;
-					exitCode: number;
-					output: string;
-					structuredOutput?: unknown;
-					durationMs?: number;
-				}
-
-				const response = await new Promise<{ output: string; results: OrchestratorResultItem[]; error?: string; flowSummary?: string }>((resolve) => {
+				const response = await new Promise<{ output: string; error?: string; flowSummary?: string }>((resolve) => {
 					const onResponse = (data: unknown) => {
 						if (!data || typeof data !== "object") return;
 						const resp = data as { requestId?: string };
 						if (resp.requestId !== requestId) return;
 						if (typeof unsubResponse === "function") unsubResponse();
 						if (typeof unsubUpdate === "function") unsubUpdate();
-						resolve(data as { output: string; results: OrchestratorResultItem[]; error?: string; flowSummary?: string });
+						resolve(data as { output: string; error?: string; flowSummary?: string });
 					};
 
 					const unsubResponse = pi.events.on(ORCHESTRATOR_RESPONSE_EVENT, onResponse) as () => void;
@@ -1630,44 +1646,24 @@ export function registerSlashCommands(
 
 				ctx.ui.setStatus("orch", undefined);
 
-				const lines = ["## Orchestrator result\n"];
+				// Final message: only flow summary + script output (step outputs already streamed progressively)
+				const finalLines: string[] = [];
 				if (response.error) {
-					lines.push(`❌ **Error**: ${response.error}`);
-					lines.push("");
-				}
-				for (const r of response.results) {
-					const icon = r.exitCode === 0 ? "✅" : "❌";
-					const dur = r.durationMs ? `${(r.durationMs / 1000).toFixed(1)}s` : "";
-					if (r.agent) {
-						lines.push(`${icon} **${r.agent}** (exit ${r.exitCode})${dur ? ` ${dur}` : ""}`);
-					}
-					if (r.structuredOutput) {
-						lines.push("```json");
-						lines.push(JSON.stringify(r.structuredOutput, null, 2));
-						lines.push("```");
-					}
-					if (r.output) {
-						const preview = r.output.slice(0, 500);
-						lines.push("```");
-						lines.push(preview);
-						if (r.output.length > 500) lines.push("...[truncated]");
-						lines.push("```");
-					}
+					finalLines.push(`## Orchestrator failed\n\n❌ **Error**: ${response.error}`);
 				}
 				if (response.flowSummary) {
-					lines.push("---");
-					lines.push(response.flowSummary);
+					finalLines.push(response.flowSummary);
 				}
 				if (response.output) {
-					lines.push("");
-					lines.push(response.output);
+					finalLines.push(response.output);
 				}
-
-				pi.sendMessage({
-					customType: "orchestrator",
-					content: lines.join("\n"),
-					display: true,
-				});
+				if (finalLines.length > 0) {
+					pi.sendMessage({
+						customType: "orchestrator",
+						content: finalLines.join("\n"),
+						display: true,
+					});
+				}
 			} catch (error) {
 				if (typeof unsubUpdate === "function") unsubUpdate();
 				ctx.ui.setStatus("orch", undefined);

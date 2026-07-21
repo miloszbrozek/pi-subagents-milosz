@@ -46,6 +46,14 @@ interface OrchestratorUpdate {
 	step: number;
 	agent: string;
 	status: "running" | "completed" | "failed";
+	/** Dostępne tylko gdy status to "completed" lub "failed" */
+	exitCode?: number;
+	output?: string;
+	error?: string;
+	label?: string;
+	durationMs?: number;
+	usage?: { input: number; output: number; cost: number };
+	model?: string;
 }
 
 interface EventBus {
@@ -310,11 +318,24 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 					}
 				}
 
+				let combinedOutput = (result.output || "").trim();
+				if (result.structuredOutput) {
+					if (combinedOutput) combinedOutput += "\n\n";
+					combinedOutput += "--- Structured Output ---\n" + JSON.stringify(result.structuredOutput, null, 2);
+				}
+
 				options.events.emit(ORCHESTRATOR_UPDATE_EVENT, {
 					requestId,
 					step: stepIndex,
 					agent: config.agent,
 					status: result.exitCode === 0 ? "completed" : "failed",
+					exitCode: result.exitCode,
+					output: combinedOutput || undefined,
+					error: result.error,
+					label: config.label,
+					durationMs: result.durationMs,
+					usage: result.usage ? { input: result.usage.input, output: result.usage.output, cost: result.usage.cost } : undefined,
+					model: result.model,
 				} as OrchestratorUpdate);
 
 				// Zapis flow.json — przyrostowo po każdym kroku (z allSteps)
@@ -342,20 +363,28 @@ export function registerOrchestratorBridge(options: OrchestratorBridgeOptions): 
 
 				try {
 					const result = await originalRunStep(stepConfig, fn);
+					const stepOutput = result == null ? "" : typeof result === "string" ? result : JSON.stringify(result);
 					options.events.emit(ORCHESTRATOR_UPDATE_EVENT, {
 						requestId,
 						step: stepIndex,
 						agent: stepConfig.label,
 						status: "completed",
+						exitCode: 0,
+						output: stepOutput,
+						label: stepConfig.label,
 					} as OrchestratorUpdate);
 					syncFlowJsonFromAllSteps(chainDir, requestId, resolvedPath, flowStartTime, orchestratorCtx);
 					return result;
 				} catch (err) {
+					const errMsg = err instanceof Error ? err.message : String(err);
 					options.events.emit(ORCHESTRATOR_UPDATE_EVENT, {
 						requestId,
 						step: stepIndex,
 						agent: stepConfig.label,
 						status: "failed",
+						exitCode: 1,
+						error: errMsg,
+						label: stepConfig.label,
 					} as OrchestratorUpdate);
 					syncFlowJsonFromAllSteps(chainDir, requestId, resolvedPath, flowStartTime, orchestratorCtx);
 					throw err;
