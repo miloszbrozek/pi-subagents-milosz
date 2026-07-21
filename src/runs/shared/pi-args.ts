@@ -256,7 +256,7 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 	if (input.parentSessionId) {
 		env[SUBAGENT_ORCHESTRATOR_SESSION_ID_ENV] = input.parentSessionId;
 	}
-	if (input.orchestratorIntercomTarget && input.parentSessionId && input.runId && input.childAgentName) {
+	if (input.parentSessionId && input.runId && input.childAgentName) {
 		const childIndex = input.childIndex ?? 0;
 		const channelDir = supervisorChannelDir(input.runId, input.childAgentName, childIndex);
 		fs.mkdirSync(path.join(channelDir, "requests"), { recursive: true });
