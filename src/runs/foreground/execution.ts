@@ -223,7 +223,9 @@ async function runSingleAttempt(
 		tools: agent.tools,
 		subagentOnlyExtensions: agent.subagentOnlyExtensions,
 		systemPrompt: appendTurnBudgetSystemPrompt(shared.systemPrompt, options.turnBudget),
-		extensions: [...(agent.extensions ?? []), ...(options.extraExtensions ?? [])],
+		extensions: agent.extensions !== undefined || (options.extraExtensions?.length ?? 0) > 0
+		? [...(agent.extensions ?? []), ...(options.extraExtensions ?? [])]
+		: undefined,
 		mcpDirectTools: agent.mcpDirectTools,
 		cwd: options.cwd ?? runtimeCwd,
 		chainDir: options.chainDir,
