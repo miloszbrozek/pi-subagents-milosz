@@ -438,19 +438,29 @@ fs.writeFileSync(filePath, content, "utf-8");
 
 ### Return a readable summary
 
-The `flow()` function must return `{ output: string }`. Format this as a Markdown summary with key results, file paths, durations, and any decisions made.
+The `flow()` function must return `{ output: string }`. Format this as a Markdown summary with key results, file paths, and any decisions made. **Do NOT include per-step duration/status tables** — the bridge's `generateFlowSummary()` already produces a detailed table with exit codes, durations, tokens, cost, and model for every step. Focus your summary on business-level results that the automatic table does not capture: decisions, artifact paths, key findings, and next steps.
 
 ```typescript
+// BAD — duplicates the bridge's automatic flow summary table
 return {
   output: [
-    "## Flow completed",
+    "## Flow — completed",
+    "| Step | Description | Duration | Status |",
+    "|------|-------------|----------|--------|",
+    `| Scout | Scanned the project | 2.3s | ✅ |`,
+    `| Plan  | Created a plan     | 1.5s | ✅ |`,
+  ].join("\n"),
+};
+
+// GOOD — business-level summary only
+return {
+  output: [
+    "## Flow — completed",
     "",
-    `| Step | Duration | Result |`,
-    `|------|----------|--------|`,
-    `| Scout | ${(scoutResult.durationMs ?? 0 / 1000).toFixed(1)}s | ✅ \`context.md\` |`,
-    `| Plan  | ${(planResult.durationMs ?? 0 / 1000).toFixed(1)}s | ✅ \`plan.md\` |`,
-    "",
-    `**Artifacts:** \`${ctx.chainDir}\``,
+    `**Decision:** Use PostgreSQL for the auth module (see \`plan.md\`).`,
+    `**Key findings:** 3 security risks identified, all mitigated.`,
+    `**Artifacts:** \`plan.md\`, \`implementation.patch\``,
+    `**Next step:** Review \`plan.md\` and run \`/pi-orch implement\`.`,
   ].join("\n"),
 };
 ```
@@ -564,11 +574,6 @@ function buildSummary(
       "",
       `**Input:** ${input}`,
       `**Git root:** ${root}`,
-      "",
-      "| Step | Duration | Status |",
-      "|------|----------|--------|",
-      `| First step | ${((step1.durationMs ?? 0) / 1000).toFixed(1)}s | ${step1.exitCode === 0 ? "✅" : "❌"} |`,
-      `| Second step | ${((step2.durationMs ?? 0) / 1000).toFixed(1)}s | ${step2.exitCode === 0 ? "✅" : "❌"} |`,
       "",
       "### Output",
       "",

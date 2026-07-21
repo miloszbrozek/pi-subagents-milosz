@@ -154,6 +154,7 @@ export function generateFlowSummary(
 		}
 
 		mdLines.push("", `📁 **Chain dir**: ${dir}`);
+		mdLines.push(`📄 **Log file**: ${dir}/orchestrator.log`);
 		return mdLines.join("\n") + "\n";
 	} catch {
 		return `# Orchestrator Flow: ${path.basename(scriptPath)}\n\n**Run ID**: ${runId}\n**Status**: ❌ Failed\n\n📁 **Chain dir**: ${dir}\n`;
