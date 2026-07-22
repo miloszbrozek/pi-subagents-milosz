@@ -144,6 +144,7 @@ The flow splits the work between agent and deterministic code — the agent hand
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { Type } from "typebox";
 
 // ── Deterministic: validate branch name ─────────────────────────────────
 
@@ -193,6 +194,8 @@ function worktreePathAvailable(wtPath: string): boolean {
 
 // ── Agent: generate branch name from feature description ────────────────
 
+const BranchNameSchema = Type.Object({ branchName: Type.String() });
+
 async function generateBranchName(
   ctx: OrchestratorContext,
   featureDescription: string,
@@ -212,10 +215,11 @@ async function generateBranchName(
     ].join("\n"),
     as: "branch-name",
     label: "Generate branch name",
+    outputSchema: BranchNameSchema,
   });
 
-  // ── Deterministic validation of agent output ──────────────────────────
-  const rawName = result.output.trim();
+  // ── Deterministic validation of typed output ──────────────────────────
+  const rawName = result.structuredOutput!.branchName;
   const validated = validateBranchName(rawName);
   ctx.log(`Agent proposed: "${rawName}" → validated: "${validated}"`);
   return validated;
