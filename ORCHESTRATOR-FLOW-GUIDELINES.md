@@ -2,6 +2,13 @@
 
 Guidelines for writing `/pi-orch` orchestrator flow scripts. These rules apply to all flows in this repository and any project that consumes `pi-subagents`.
 
+> **Important:** `/pi-orch` is a **Pi slash command** (not a terminal command). You can run it in two ways:
+>
+> 1. **Inline (recommended):** `pi "/pi-orch <name> \"args\""` — single command, Pi starts and executes the flow immediately.
+> 2. **Interactive:** start `pi` in the target directory, then type `/pi-orch <name> <args>` inside the session.
+>
+> In both cases, the flow operates on the directory where Pi was started.
+
 ## Mandatory Rules
 
 ### 1. English Only
@@ -69,6 +76,29 @@ export default {
   },
 } satisfies OrchestratorScript;
 ```
+
+### 4. Structured Output for Agent ↔ Deterministic Bridge
+
+When an agent produces data that deterministic code will consume, you **must** use `outputSchema` with a TypeBox or JSON Schema definition. Access the typed data via `result.structuredOutput` — never parse `result.output` manually with `.trim()`, `.split()`, or regex.
+
+```typescript
+import { Type } from "typebox";
+
+// BAD — parsing raw text is fragile and breaks when the agent changes phrasing
+const rawName = result.output.trim();
+
+// GOOD — typed, validated automatically
+const BranchSchema = Type.Object({ branchName: Type.String() });
+const result = await ctx.runAgent({
+  agent: "oracle",
+  task: "Generate a branch name for this feature: ...",
+  as: "branch-name",
+  outputSchema: BranchSchema,
+});
+const { branchName } = result.structuredOutput!;
+```
+
+This is not optional — the guideline from the Best Practices section is elevated to mandatory because manual string parsing from agent output is a consistent source of bugs. The only exception is when the agent output is purely human-readable (e.g., final summary for user display).
 
 ## Best Practices
 
@@ -496,12 +526,19 @@ Use this template as a starting point for new flows:
  *
  * Brief description of what this flow does and when to use it.
  *
- * Usage:
+ * Usage (inside Pi, after starting `pi` in your target directory):
+ *
+ *   # Recommended: inline mode (single command)
+ *   pi "/pi-orch <flow-name> \"<arguments>\""
+ *
+ *   # Or: interactive mode
+ *   pi
  *   /pi-orch <flow-name> "<arguments>"
  */
 
 import { execSync } from "node:child_process";
 import * as path from "node:path";
+import { Type } from "typebox";
 import type {
   OrchestratorContext,
   OrchestratorScript,
@@ -536,12 +573,16 @@ async function runFirstAgent(
   ctx: OrchestratorContext,
   input: string,
 ): Promise<OrchestratorRunAgentResult> {
+  // MANDATORY (Rule 4): use outputSchema when deterministic code consumes the agent's result.
+  // Access the typed data via result.structuredOutput, never parse result.output manually.
+  const ScanSchema = Type.Object({ summary: Type.String(), files: Type.Array(Type.String()) });
   return ctx.runAgent({
     agent: "scout",
     task: `Analyze: ${input}`,
     as: "first-step",
     label: "First step",
     output: "first-output.md",
+    outputSchema: ScanSchema,
   });
 }
 
@@ -592,4 +633,157 @@ export default {
     return buildSummary(input, root, step1, step2);
   },
 } satisfies OrchestratorScript;
+```
+
+---
+
+## Testing Flows
+
+Flows can be tested autonomously (no Pi session, no LLM calls) using `FakeOrchestratorContext`. Combined with `bun test`, this gives fast, deterministic tests for flow logic.
+
+### Why Test With a Fake Context?
+
+| What you test | Real Pi needed? | How |
+|--------------|----------------|-----|
+| Flow branching logic (if/else, conditions) | No | Mock `runAgent` returns different `structuredOutput` values; flow takes different paths |
+| Error handling (`exitCode !== 0`) | No | Mock with `exitCode: 1`, flow handles `OrchestratorAgentError` |
+| Retry logic (`withRetry`) | No | Mock throws `OrchestratorAgentError` on attempt 0, succeeds on attempt 1 |
+| Interactive step flows | No | Pre-seeded response files |
+| Structured output consumption | No | Mock returns `structuredOutput`, flow reads typed fields |
+| Deterministic steps (`runStep`) | No | Executes real TypeScript code |
+| Agent output quality | **Yes** | Requires real LLM — test manually |
+
+### `FakeOrchestratorContext`
+
+Import from `pi-subagents-milosz/src/orchestrator/fake-orchestrator-context.ts`.
+
+```typescript
+import { FakeOrchestratorContext } from "../pi-subagents-milosz/src/orchestrator/fake-orchestrator-context.ts";
+import { OrchestratorAgentError } from "../pi-subagents-milosz/src/orchestrator/fake-orchestrator-context.ts";
+```
+
+#### Direct mock setup
+
+```typescript
+const ctx = new FakeOrchestratorContext({
+  mocks: new Map([
+    ["scan", { exitCode: 0, output: "...", structuredOutput: { result: 4 } }],
+    ["analysis", { exitCode: 0, output: "...", structuredOutput: { result: 12 } }],
+  ]),
+  interactiveResponses: ["Plan looks good, proceed"],
+});
+```
+
+#### From fixture directory
+
+```
+tests/my-flow/fixtures/happy-path/
+├── responses/
+│   ├── 01.md          # First interactiveStep response
+│   └── 02.md          # Second interactiveStep response
+└── mocks.json          # Agent mocks
+```
+
+```json
+{
+  "plan": { "exitCode": 0, "output": "Plan: add greet() function..." },
+  "impl": { "exitCode": 0, "output": "Done", "structuredOutput": { "commitSha": "abc123", "testsToRun": ["tests/greet.test.ts"] } }
+}
+```
+
+```typescript
+const ctx = FakeOrchestratorContext.fromTestDir("tests/my-flow/fixtures/happy-path");
+const result = await flow(ctx);
+expect(result.output).toContain("completed");
+```
+
+### Mock keys
+
+The mock is looked up by `config.as` first, then `config.label`, then `config.agent`. Use the same `as` value you pass to `runAgent()`:
+
+```typescript
+// In the flow:
+await ctx.runAgent({ agent: "scout", task: "...", as: "scan" });
+
+// In the mock:
+mocks.set("scan", { exitCode: 0, output: "..." });
+```
+
+### Testing conventions
+
+1. **Flow exports step functions** — for unit testing individual steps, export them alongside the default:
+
+```typescript
+export async function validateGitClean(ctx: OrchestratorContext): Promise<void> { ... }
+
+export default {
+  flow: async (ctx) => { ... },
+} satisfies OrchestratorScript;
+```
+
+```typescript
+// In test:
+import { validateGitClean } from "../flows/my-flow";
+it("throws on dirty repo", async () => {
+  const ctx = new FakeOrchestratorContext({ cwd: dirtyRepoPath });
+  expect(validateGitClean(ctx)).rejects.toThrow();
+});
+```
+
+2. **Fixtures live with the flow** — `tests/<flow-name>/fixtures/<scenario>/`
+
+3. **One test file per concern** — `steps.test.ts` for unit tests of individual functions, `flows.test.ts` for full-flow scenarios
+
+4. **Test both branches** — mock different outputs to exercise all `if/else` paths
+
+### Example: Testing retry logic
+
+```typescript
+it("retries on first failure, succeeds on second attempt", async () => {
+  let callCount = 0;
+  const ctx = new FakeOrchestratorContext();
+
+  // Override runAgent temporarily for this test
+  const origRunAgent = ctx.runAgent.bind(ctx);
+  ctx.runAgent = async (config) => {
+    callCount++;
+    if (callCount === 1) {
+      throw new OrchestratorAgentError("transient failure", {
+        exitCode: 1, output: "", error: "transient failure", agent: config.agent,
+      } as OrchestratorRunAgentResult);
+    }
+    return origRunAgent(config);
+  };
+
+  // ... run flow that uses withRetry ...
+  expect(callCount).toBe(2);
+});
+```
+
+### Example: Testing conditional branching
+
+```typescript
+it("takes the 'large result' branch when step2 > 10", async () => {
+  const ctx = new FakeOrchestratorContext({
+    mocks: new Map([
+      ["scan", { exitCode: 0, output: "", structuredOutput: { result: 4 } }],
+      // 4 × 3 = 12 → triggers >10 branch
+      ["analysis", { exitCode: 0, output: "", structuredOutput: { result: 12 } }],
+      ["risk-review", { exitCode: 0, output: "TAK, wynik poprawny" }],
+      ["plan", { exitCode: 0, output: "", structuredOutput: { result: 17 } }],
+      ["review", { exitCode: 0, output: "OK" }],
+    ]),
+  });
+
+  const result = await flow(ctx);
+
+  expect(result.output).toContain("→ oracle");
+
+  // Verify branching via which agents were called (not logs — those are brittle)
+  const calledAgents = ctx.allSteps
+    .filter((s) => s.type === "agent")
+    .map((s) => s.as);
+  expect(calledAgents).toContain("risk-review"); // step2 > 10
+  expect(calledAgents).not.toContain("summary");  // not the small path
+});
 ```
